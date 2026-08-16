@@ -1,26 +1,367 @@
 @import "tailwindcss";
 
+/* ============================================================================
+   CTY Booksource — a ledger, not a dashboard.
+
+   The whole app is one metaphor: the hardcover sales ledger a book wholesaler
+   actually keeps. Figures sit in ruled columns and set in tabular mono so they
+   align on a phone. Black ink is normal, red ink is money owed — the same
+   convention as the paper book. Every book carries a publisher "spine" colour,
+   so a list of titles reads like a shelf and the same colours key the publisher
+   charts.
+
+   Committed light-only: this app's subject is paper.
+   ========================================================================= */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --font-scale: 1;
+
+  /* Surfaces — book paper, warm but not cream */
+  --paper: #faf9f6;
+  --sunken: #f1f0ea;
+  --card: #ffffff;
+  --rule: #e5e3da;
+  --rule-strong: #cdc9bc;
+
+  /* Ink */
+  --ink: #16223a;
+  --ink-2: #5a6478;
+  --ink-3: #8d95a5;
+
+  /* Accent — the gold on a textbook spine. Used for emphasis, never for fill. */
+  --gold: #a8761f;
+  --gold-soft: #f7efdd;
+
+  /* Ledger semantics. Credit = money in, debit = money owed. */
+  --credit: #157f4e;
+  --credit-soft: #e4f2ea;
+  --debit: #b3261e;
+  --debit-soft: #fbeae8;
+  --pending: #b45309;
+  --pending-soft: #fbf0de;
+
+  --ring: rgba(22, 34, 58, 0.14);
+
+  /* Publisher spines / categorical chart series. Fixed order, never cycled;
+     validated for CVD separation, chroma and contrast against --paper. */
+  --spine-1: #2563c9;
+  --spine-2: #d97706;
+  --spine-3: #0e9488;
+  --spine-4: #8b5cf6;
+  --spine-5: #be2e62;
+  --spine-6: #a16207;
+  --spine-7: #0891b2;
+  --spine-8: #9a3412;
+
+  /* Sequential ramp for debt ageing — one hue, light to dark as it rots. */
+  --age-1: #e8a29b;
+  --age-2: #d9736a;
+  --age-3: #c24a3f;
+  --age-4: #8f2a22;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-paper: var(--paper);
+  --color-sunken: var(--sunken);
+  --color-card: var(--card);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-ink: var(--ink);
+  --color-ink2: var(--ink-2);
+  --color-ink3: var(--ink-3);
+  --color-gold: var(--gold);
+  --color-goldsoft: var(--gold-soft);
+  --color-credit: var(--credit);
+  --color-creditsoft: var(--credit-soft);
+  --color-debit: var(--debit);
+  --color-debitsoft: var(--debit-soft);
+  --color-pending: var(--pending);
+  --color-pendingsoft: var(--pending-soft);
+
+  --font-display: var(--font-newsreader), Georgia, serif;
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "SF Mono", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  /* Root size drives the Settings font-size control. */
+  font-size: calc(16px * var(--font-scale));
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--sunken);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+::selection {
+  background: var(--gold-soft);
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* The page is a phone-width sheet of paper, centred on desktop. */
+.sheet {
+  width: 100%;
+  max-width: 680px;
+  margin-inline: auto;
+  min-height: 100dvh;
+  background: var(--paper);
+  box-shadow: 0 0 0 1px var(--rule);
+}
+
+@layer components {
+  /* -- Type roles ------------------------------------------------------- */
+
+  /* Ledger column heading: small, spaced, mono. Structural, not decorative —
+     it names a column of figures. */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .display {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+
+  /* Every naira figure in the app. Tabular so columns line up. */
+  .figure {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+
+  /* -- Ledger surfaces --------------------------------------------------- */
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 0.875rem;
+  }
+
+  /* A ruled row. The rule sits under the row, like the printed line it sits on. */
+  .ruled > * + * {
+    border-top: 1px solid var(--rule);
+  }
+
+  /* The publisher spine: a book's colour on the shelf. */
+  .spine {
+    width: 3px;
+    border-radius: 999px;
+    background: var(--spine-1);
+    align-self: stretch;
+    flex: none;
+  }
+
+  /* -- Controls ---------------------------------------------------------- */
+
+  .field {
+    width: 100%;
+    background: var(--card);
+    border: 1px solid var(--rule-strong);
+    border-radius: 0.625rem;
+    color: var(--ink);
+    padding: 0.5rem 0.625rem;
+    font-size: 0.9375rem;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .field::placeholder {
+    color: var(--ink-3);
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--ink);
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    border-radius: 0.625rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    padding: 0.55rem 0.9rem;
+    border: 1px solid transparent;
+    transition: background 0.15s ease, transform 0.08s ease, border-color 0.15s ease;
+    cursor: pointer;
+  }
+  .btn:active {
+    transform: scale(0.98);
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .btn-ink {
+    background: var(--ink);
+    color: var(--paper);
+  }
+  .btn-ink:hover:not(:disabled) {
+    background: #0d1728;
+  }
+
+  .btn-quiet {
+    background: var(--card);
+    color: var(--ink);
+    border-color: var(--rule-strong);
+  }
+  .btn-quiet:hover:not(:disabled) {
+    border-color: var(--ink-3);
+  }
+
+  .btn-danger {
+    background: var(--debit-soft);
+    color: var(--debit);
+    border-color: rgba(179, 38, 30, 0.25);
+  }
+
+  /* Status pill — always label + colour, never colour alone. */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.45rem;
+    border-radius: 0.375rem;
+    white-space: nowrap;
+  }
+  .pill-paid {
+    background: var(--credit-soft);
+    color: var(--credit);
+  }
+  .pill-partial {
+    background: var(--pending-soft);
+    color: var(--pending);
+  }
+  .pill-unpaid {
+    background: var(--debit-soft);
+    color: var(--debit);
+  }
+  .pill-draft {
+    background: var(--sunken);
+    color: var(--ink-2);
+  }
+  .pill-cancelled {
+    background: var(--sunken);
+    color: var(--ink-3);
+    text-decoration: line-through;
+  }
+
+  /* Segmented control — period pickers, sort switches. */
+  .segment {
+    display: inline-flex;
+    background: var(--sunken);
+    border: 1px solid var(--rule);
+    border-radius: 0.625rem;
+    padding: 2px;
+    gap: 2px;
+  }
+  .segment button {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    padding: 0.3rem 0.6rem;
+    border-radius: 0.5rem;
+    color: var(--ink-2);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .segment button[data-on="true"] {
+    background: var(--card);
+    color: var(--ink);
+    box-shadow: 0 1px 2px rgba(22, 34, 58, 0.08);
+  }
+}
+
+/* Focus visibility floor — keyboard users always see where they are. */
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.sheet-in {
+  animation: sheet-up 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fade-in {
+  animation: fade-in 0.16s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-in,
+  .fade-in {
+    animation: none;
+  }
+}
+
+/* Printing an invoice prints only the invoice. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body,
+  .sheet {
+    background: #fff;
+    box-shadow: none;
+    max-width: none;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
+.print-only {
+  display: none;
 }
