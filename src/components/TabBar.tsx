@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Building2, LineChart, NotebookPen, Receipt } from "lucide-react";
+import { BookOpen, Building2, LineChart, Receipt } from "lucide-react";
 
 const TABS = [
-  { href: "/", label: "Ledger", icon: NotebookPen, match: (p: string) => p === "/" },
-  { href: "/invoices", label: "Invoices", icon: Receipt, match: (p: string) => p.startsWith("/invoice") },
+  { href: "/invoices", label: "Invoices", icon: Receipt, match: (p: string) => p === "/" || p.startsWith("/invoice") },
   { href: "/customers", label: "Schools", icon: Building2, match: (p: string) => p.startsWith("/customers") },
   { href: "/books", label: "Books", icon: BookOpen, match: (p: string) => p.startsWith("/books") },
   { href: "/reports", label: "Reports", icon: LineChart, match: (p: string) => p.startsWith("/reports") },

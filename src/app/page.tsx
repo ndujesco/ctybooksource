@@ -1,5 +1,6 @@
-import LedgerView from "@/components/LedgerView";
+import { redirect } from "next/navigation";
 
+// The dashboard was removed; invoices is the home screen.
 export default function Page() {
-  return <LedgerView />;
+  redirect("/invoices");
 }

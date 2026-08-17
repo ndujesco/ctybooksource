@@ -201,7 +201,7 @@ export default function CustomerProfileView({ id }: { id: string }) {
                         {formatDate(i.date)} · {i.totals.qty} books ·{" "}
                         {i.lines
                           .slice(0, 2)
-                          .map((l) => (l.nameMode === "full" ? l.fullName : l.shortName))
+                          .map((l) => l.name)
                           .join(", ")}
                         {i.lines.length > 2 ? ` +${i.lines.length - 2}` : ""}
                       </p>

@@ -204,8 +204,7 @@ export function emptyTrash(): Promise<unknown> {
 
 export type ExtractedBook = {
   id: string;
-  shortName: string;
-  fullName: string;
+  name: string;
   publisher: string;
   category: string;
   costPrice: number;

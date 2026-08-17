@@ -35,8 +35,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
 
   const set: Record<string, unknown> = { updatedAt: new Date() };
-  if (typeof body.shortName === "string") set.shortName = str(body.shortName, 200).trim();
-  if (typeof body.fullName === "string") set.fullName = str(body.fullName, 300).trim();
+  if (typeof body.name === "string") set.name = str(body.name, 300).trim();
   if (typeof body.publisher === "string") set.publisher = str(body.publisher, 120).trim();
   if (typeof body.category === "string") set.category = str(body.category, 120).trim();
   if (body.costPrice !== undefined) set.costPrice = clampNum(body.costPrice, 0, 100_000_000);

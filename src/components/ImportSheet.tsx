@@ -23,7 +23,6 @@ import {
 import { formatMoney, lineTotal, type Book, type Line } from "@/lib/types";
 import { today } from "@/lib/datetime";
 import { spineColor } from "@/lib/spine";
-import { useDefaultNameMode } from "@/lib/use-settings";
 
 const lineId = () => `l${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
@@ -50,7 +49,6 @@ function toDrafts(items: ExtractedItem[]): Draft[] {
 
 export default function ImportSheet({ onClose }: { onClose: () => void }) {
   const router = useRouter();
-  const defaultNameMode = useDefaultNameMode();
 
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -93,8 +91,7 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
     patch(key, {
       book: {
         id: book.id,
-        shortName: book.shortName,
-        fullName: book.fullName,
+        name: book.name,
         publisher: book.publisher,
         category: book.category,
         costPrice: book.costPrice,
@@ -121,9 +118,7 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
       const lines: Line[] = drafts.map((d) => ({
         id: lineId(),
         bookId: d.book?.id ?? null,
-        shortName: d.book?.shortName ?? d.written,
-        fullName: d.book?.fullName ?? d.written,
-        nameMode: defaultNameMode,
+        name: d.book?.name ?? d.written,
         publisher: d.book?.publisher ?? "",
         category: d.book?.category ?? "",
         qty: d.qty,
@@ -232,7 +227,7 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
-                        {d.book?.shortName ?? d.written}
+                        {d.book?.name ?? d.written}
                       </p>
                       <p className="truncate text-xs text-[var(--ink-3)]">
                         {d.book ? d.book.publisher || "No publisher" : `Read as “${d.written}”`}

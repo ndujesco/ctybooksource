@@ -182,7 +182,6 @@ export async function series(range: Range): Promise<{ bucket: Bucket; points: Se
 export type ProductRow = {
   bookId: string | null;
   name: string;
-  fullName: string;
   publisher: string;
   category: string;
   qty: number;
@@ -205,9 +204,8 @@ export async function products(range: Range, limit = 100): Promise<ProductRow[]>
         $group: {
           // Books added to the catalogue group by id; anything typed free-hand
           // onto an invoice groups by the name that was typed.
-          _id: { $ifNull: ["$lines.bookId", { $concat: ["~", "$lines.shortName"] }] },
-          name: { $last: "$lines.shortName" },
-          fullName: { $last: "$lines.fullName" },
+          _id: { $ifNull: ["$lines.bookId", { $concat: ["~", "$lines.name"] }] },
+          name: { $last: "$lines.name" },
           publisher: { $last: "$lines.publisher" },
           category: { $last: "$lines.category" },
           qty: { $sum: "$lines.qty" },
@@ -232,8 +230,7 @@ function toProductRow(r: Document): ProductRow {
   const lastSold = (r.lastSold as string) || null;
   return {
     bookId: id.startsWith("~") || !id ? null : id,
-    name: r.name || r.fullName || "Unnamed book",
-    fullName: r.fullName || "",
+    name: r.name || "Unnamed book",
     publisher: r.publisher || "",
     category: r.category || "",
     qty: r.qty || 0,
@@ -282,8 +279,7 @@ export async function slowMovers(staleDays = 60, limit = 40): Promise<ProductRow
     const lastSold = (s?.lastSold as string) || null;
     return {
       bookId: String(b._id),
-      name: b.shortName || b.fullName || "Unnamed book",
-      fullName: b.fullName || "",
+      name: b.name || "Unnamed book",
       publisher: b.publisher || "",
       category: b.category || "",
       qty: s?.qty || 0,

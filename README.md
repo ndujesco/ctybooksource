@@ -26,10 +26,10 @@ the AI import, which says so rather than failing obscurely.
 decrements anything. "Which books sell the most" is answered from invoice
 history, not from an inventory count.
 
-**Every book has two names.** A short name (what prints on the invoice) and a
-full title (the official one, for when a school asks). Each invoice line carries
-a `nameMode` and a Short/Full toggle, so a single line can print the long title
-while the rest stay short. The default for new lines is a device setting.
+**A book is just a name, publisher and two prices** (cost and selling). Adding a
+book asks for exactly those; there is no short/long-name split. An invoice line
+snapshots the book's name and prices at the time of sale, so editing a book
+later never rewrites history.
 
 ## Collections
 
@@ -37,12 +37,12 @@ while the rest stay short. The default for new lines is a device setting.
 |---|---|
 | `invoices` | the ledger — lines, payments, totals, status |
 | `customers` | schools and bookshops |
-| `books` | the catalogue: short name, full title, publisher, subject, cost & selling price |
+| `books` | the catalogue: name, publisher, cost & selling price (subject kept for the by-subject report) |
 | `counters` | one doc, `invoiceNumber`, incremented atomically so numbers never collide |
 
 ### Invoice lines snapshot their book
 
-A line stores the book's names, publisher, selling price **and cost price as
+A line stores the book's name, publisher, selling price **and cost price as
 they were at the time of sale**. Editing a book later never rewrites history,
 and profit on an old invoice stays correct. The same is true of the customer's
 name, phone and address.
@@ -65,16 +65,19 @@ document so list filtering and the analytics pipelines stay simple and fast.
 An invoice promotes itself from draft to open as soon as it names a customer and
 has a line with a quantity — there's no "confirm" step to forget. **Only `open`
 invoices count towards any figure anywhere.** Drafts and cancelled invoices are
-excluded from every report; the ledger screen links to unfinished drafts so none
-get lost.
+excluded from every report; the invoices screen flags unfinished drafts so none get lost.
+
+## Home
+
+There is no separate dashboard — `/` redirects to the invoices list, which is the
+home screen. New invoice, the AI import, and search all live there.
 
 ## Reports
 
 `GET /api/analytics?period=…` returns one bundle: KPIs and period-over-period
 growth, a sales/collections series, ranked products, slow movers, ranked
 customers, dormant customers, receivables ageing, and profit split by publisher
-and subject. `GET /api/analytics/overview` is the smaller bundle for the home
-screen.
+and subject.
 
 Two things worth knowing about the numbers:
 

@@ -72,7 +72,7 @@ export function ensureIndexes(): Promise<void> {
         db.collection("invoices").createIndex({ customerId: 1, date: -1 }),
         db.collection("invoices").createIndex({ customerName: 1 }),
         db.collection("customers").createIndex({ name: 1 }),
-        db.collection("books").createIndex({ shortName: 1 }),
+        db.collection("books").createIndex({ name: 1 }),
       ]);
     })().catch(() => {
       // Index creation is best-effort — never block a request on it.

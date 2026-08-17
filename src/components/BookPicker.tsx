@@ -9,8 +9,8 @@ import { spineColor } from "@/lib/spine";
 import { ErrorNote, Labelled, Spine } from "@/components/ui";
 
 /**
- * Pick a book off the shelf. Short name is what you search and what lands on
- * the invoice; the full title rides along for when a school wants it.
+ * Pick a book off the shelf — the book name is what you search and what lands
+ * on the invoice.
  */
 // Mounted only while open (see the callers), so the search box and the
 // add-a-book form reset themselves on close without an effect to do it.
@@ -58,7 +58,7 @@ export default function BookPicker({
             />
             <input
               className="field pl-9"
-              placeholder="Short name, title or publisher"
+              placeholder="Book name or publisher"
               value={q}
               autoFocus
               onChange={(e) => setQ(e.target.value)}
@@ -82,9 +82,9 @@ export default function BookPicker({
                 >
                   <Spine color={spineColor(b.publisher)} title={b.publisher} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{b.shortName}</span>
+                    <span className="block truncate font-medium">{b.name}</span>
                     <span className="block truncate text-xs text-[var(--ink-3)]">
-                      {b.fullName !== b.shortName ? b.fullName : b.publisher || "No publisher"}
+                      {b.publisher || "No publisher"}
                     </span>
                   </span>
                   <span className="figure shrink-0 text-sm">{formatMoney(b.sellingPrice)}</span>
@@ -115,10 +115,8 @@ export function NewBookForm({
   onCancel?: () => void;
 }) {
   const [form, setForm] = useState({
-    shortName: initialName,
-    fullName: "",
+    name: initialName,
     publisher: "",
-    category: "",
     costPrice: "",
     sellingPrice: "",
   });
@@ -134,10 +132,8 @@ export function NewBookForm({
     setError("");
     try {
       const book = await createBook({
-        shortName: form.shortName.trim(),
-        fullName: form.fullName.trim(),
+        name: form.name.trim(),
         publisher: form.publisher.trim(),
-        category: form.category.trim(),
         costPrice: Number(form.costPrice) || 0,
         sellingPrice: Number(form.sellingPrice) || 0,
       });
@@ -152,27 +148,13 @@ export function NewBookForm({
     <form onSubmit={submit} className="space-y-3">
       {error && <ErrorNote>{error}</ErrorNote>}
 
-      <Labelled label="Short name" hint="What prints on the invoice. Keep it tight — “Oxford Maths 5”.">
-        <input className="field mt-1" value={form.shortName} onChange={set("shortName")} autoFocus required />
+      <Labelled label="Book name" hint="What prints on the invoice — e.g. “Oxford Maths 5”.">
+        <input className="field mt-1" value={form.name} onChange={set("name")} autoFocus required />
       </Labelled>
 
-      <Labelled label="Full title" hint="The official title, for when a school asks for it.">
-        <input
-          className="field mt-1"
-          value={form.fullName}
-          onChange={set("fullName")}
-          placeholder="Oxford Mathematics for Primary Schools Book 5"
-        />
+      <Labelled label="Publisher">
+        <input className="field mt-1" value={form.publisher} onChange={set("publisher")} placeholder="Oxford" />
       </Labelled>
-
-      <div className="grid grid-cols-2 gap-3">
-        <Labelled label="Publisher">
-          <input className="field mt-1" value={form.publisher} onChange={set("publisher")} placeholder="Oxford" />
-        </Labelled>
-        <Labelled label="Subject">
-          <input className="field mt-1" value={form.category} onChange={set("category")} placeholder="Mathematics" />
-        </Labelled>
-      </div>
 
       <div className="grid grid-cols-2 gap-3">
         <Labelled label="Cost price" hint="What you pay. Drives profit.">
@@ -209,7 +191,7 @@ export function NewBookForm({
             Cancel
           </button>
         )}
-        <button className="btn btn-ink flex-1" disabled={saving || !form.shortName.trim()}>
+        <button className="btn btn-ink flex-1" disabled={saving || !form.name.trim()}>
           {saving ? "Saving…" : "Save book"}
         </button>
       </div>

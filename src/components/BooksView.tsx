@@ -5,7 +5,7 @@ import { BookPlus, Pencil, Search } from "lucide-react";
 import Sheet from "@/components/Sheet";
 import { NewBookForm } from "@/components/BookPicker";
 import { archiveBook, deleteBook, listBooks, updateBook } from "@/lib/client";
-import { formatMoney, type Book } from "@/lib/types";
+import { type Book } from "@/lib/types";
 import { spineColor } from "@/lib/spine";
 import { Empty, ErrorNote, Labelled, Loading, PageHeader, Spine } from "@/components/ui";
 
@@ -47,7 +47,7 @@ export default function BooksView() {
             />
             <input
               className="field pl-9"
-              placeholder="Title, publisher or subject"
+              placeholder="Book name or publisher"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               aria-label="Search books"
@@ -76,49 +76,29 @@ export default function BooksView() {
 
       {books && visible!.length > 0 && (
         <ul className="ruled">
-          {visible!.map((b) => {
-            const margin = b.sellingPrice > 0
-              ? ((b.sellingPrice - b.costPrice) / b.sellingPrice) * 100
-              : 0;
-            return (
-              <li key={b.id} className="flex items-stretch gap-3 px-4 py-3">
-                <Spine color={spineColor(b.publisher)} title={b.publisher || "No publisher"} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className={`truncate font-medium ${b.archived ? "text-[var(--ink-3)] line-through" : ""}`}>
-                      {b.shortName}
-                    </span>
-                    {b.archived && <span className="pill pill-draft">Archived</span>}
-                  </div>
-                  {b.fullName && b.fullName !== b.shortName && (
-                    <p className="truncate text-xs text-[var(--ink-3)]">{b.fullName}</p>
-                  )}
-                  <p className="mt-0.5 text-xs text-[var(--ink-2)]">
-                    {[b.publisher, b.category].filter(Boolean).join(" · ") || "No publisher recorded"}
-                  </p>
+          {visible!.map((b) => (
+            <li key={b.id} className="flex items-stretch gap-3 px-4 py-3">
+              <Spine color={spineColor(b.publisher)} title={b.publisher || "No publisher"} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className={`truncate font-medium ${b.archived ? "text-[var(--ink-3)] line-through" : ""}`}>
+                    {b.name}
+                  </span>
+                  {b.archived && <span className="pill pill-draft">Archived</span>}
                 </div>
-                <div className="shrink-0 text-right">
-                  <div className="figure text-sm font-semibold">{formatMoney(b.sellingPrice)}</div>
-                  <div className="figure text-xs text-[var(--ink-3)]">
-                    cost {formatMoney(b.costPrice)}
-                  </div>
-                  <div
-                    className="figure text-xs"
-                    style={{ color: margin > 0 ? "var(--credit)" : "var(--ink-3)" }}
-                  >
-                    {margin > 0 ? `${margin.toFixed(0)}% margin` : "—"}
-                  </div>
-                </div>
-                <button
-                  aria-label={`Edit ${b.shortName}`}
-                  className="self-center rounded-lg p-1.5 text-[var(--ink-3)] hover:bg-[var(--sunken)] hover:text-[var(--ink)]"
-                  onClick={() => setEditing(b)}
-                >
-                  <Pencil size={16} />
-                </button>
-              </li>
-            );
-          })}
+                <p className="mt-0.5 text-xs text-[var(--ink-2)]">
+                  {b.publisher || "No publisher recorded"}
+                </p>
+              </div>
+              <button
+                aria-label={`Edit ${b.name}`}
+                className="self-center rounded-lg p-1.5 text-[var(--ink-3)] hover:bg-[var(--sunken)] hover:text-[var(--ink)]"
+                onClick={() => setEditing(b)}
+              >
+                <Pencil size={16} />
+              </button>
+            </li>
+          ))}
         </ul>
       )}
 
@@ -167,10 +147,8 @@ export default function BooksView() {
 
 function EditBookForm({ book, onDone }: { book: Book; onDone: () => void }) {
   const [form, setForm] = useState({
-    shortName: book.shortName,
-    fullName: book.fullName,
+    name: book.name,
     publisher: book.publisher,
-    category: book.category,
     costPrice: String(book.costPrice),
     sellingPrice: String(book.sellingPrice),
   });
@@ -199,10 +177,8 @@ function EditBookForm({ book, onDone }: { book: Book; onDone: () => void }) {
         e.preventDefault();
         void run(() =>
           updateBook(book.id, {
-            shortName: form.shortName.trim(),
-            fullName: form.fullName.trim(),
+            name: form.name.trim(),
             publisher: form.publisher.trim(),
-            category: form.category.trim(),
             costPrice: Number(form.costPrice) || 0,
             sellingPrice: Number(form.sellingPrice) || 0,
           })
@@ -211,20 +187,12 @@ function EditBookForm({ book, onDone }: { book: Book; onDone: () => void }) {
     >
       {error && <ErrorNote>{error}</ErrorNote>}
 
-      <Labelled label="Short name" hint="What prints on the invoice.">
-        <input className="field mt-1" value={form.shortName} onChange={set("shortName")} required />
+      <Labelled label="Book name" hint="What prints on the invoice.">
+        <input className="field mt-1" value={form.name} onChange={set("name")} required />
       </Labelled>
-      <Labelled label="Full title">
-        <input className="field mt-1" value={form.fullName} onChange={set("fullName")} />
+      <Labelled label="Publisher">
+        <input className="field mt-1" value={form.publisher} onChange={set("publisher")} />
       </Labelled>
-      <div className="grid grid-cols-2 gap-3">
-        <Labelled label="Publisher">
-          <input className="field mt-1" value={form.publisher} onChange={set("publisher")} />
-        </Labelled>
-        <Labelled label="Subject">
-          <input className="field mt-1" value={form.category} onChange={set("category")} />
-        </Labelled>
-      </div>
       <div className="grid grid-cols-2 gap-3">
         <Labelled label="Cost price">
           <input className="field figure mt-1" type="number" min={0} value={form.costPrice} onChange={set("costPrice")} />

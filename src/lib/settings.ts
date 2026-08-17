@@ -33,7 +33,6 @@ export const FONT_STEPS = [0.9, 1, 1.1, 1.25, 1.4] as const;
 const K_BUSINESS = "pb.business";
 const K_TOGGLES = "pb.headerToggles";
 const K_FONT = "pb.fontScale";
-const K_NAME_MODE = "pb.defaultNameMode";
 
 /* Snapshots are cached and only replaced when a setting actually changes.
    `useSyncExternalStore` compares snapshots by reference, so re-parsing the
@@ -101,18 +100,3 @@ export function setFontScale(scale: number) {
   invalidate();
 }
 
-/**
- * Which book name new invoice lines start with. Short is the default — the
- * long title is there for when a school asks for the official one.
- */
-export function getDefaultNameMode(): "short" | "full" {
-  if (typeof window === "undefined") return "short";
-  return localStorage.getItem(K_NAME_MODE) === "full" ? "full" : "short";
-}
-
-export function setDefaultNameMode(mode: "short" | "full") {
-  try {
-    localStorage.setItem(K_NAME_MODE, mode);
-  } catch {}
-  invalidate();
-}

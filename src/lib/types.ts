@@ -12,10 +12,9 @@ export const CURRENCY = "₦";
 
 export type BookDoc = {
   _id?: ObjectId;
-  shortName: string;
-  fullName: string;
+  name: string;
   publisher: string;
-  category: string;
+  category: string; // kept for the by-subject report; not captured on new books
   costPrice: number; // what we buy it for
   sellingPrice: number; // default price on an invoice line
   archived: boolean;
@@ -25,8 +24,7 @@ export type BookDoc = {
 
 export type Book = {
   id: string;
-  shortName: string;
-  fullName: string;
+  name: string;
   publisher: string;
   category: string;
   costPrice: number;
@@ -65,18 +63,14 @@ export type Customer = {
 /* ---------------------------------------------------------------------------
    Invoices
 
-   Lines snapshot the book's names and prices at the time of sale, so editing a
+   Lines snapshot the book's name and prices at the time of sale, so editing a
    book later never rewrites history (and profit stays correct).
    ------------------------------------------------------------------------ */
-
-export type NameMode = "short" | "full";
 
 export type Line = {
   id: string;
   bookId: string | null;
-  shortName: string;
-  fullName: string;
-  nameMode: NameMode; // which name prints on this line
+  name: string; // what prints on this line
   publisher: string;
   category: string;
   qty: number;
@@ -203,15 +197,12 @@ export function round2(n: number): number {
 
 /** The name that prints on the invoice for this line. */
 export function lineName(l: Line): string {
-  const full = (l.fullName || "").trim();
-  const short = (l.shortName || "").trim();
-  if (l.nameMode === "full") return full || short || "Item";
-  return short || full || "Item";
+  return (l.name || "").trim() || "Item";
 }
 
 /** Display label for a book in pickers and reports. */
-export function bookLabel(b: Pick<Book, "shortName" | "fullName">): string {
-  return (b.shortName || "").trim() || (b.fullName || "").trim() || "Untitled";
+export function bookLabel(b: Pick<Book, "name">): string {
+  return (b.name || "").trim() || "Untitled";
 }
 
 export function invoiceNumberLabel(n: number): string {

@@ -24,8 +24,7 @@ import { isYmd, today } from "@/lib/datetime";
 export function toBook(d: BookDoc): Book {
   return {
     id: String(d._id),
-    shortName: d.shortName || "",
-    fullName: d.fullName || "",
+    name: d.name || "",
     publisher: d.publisher || "",
     category: d.category || "",
     costPrice: num(d.costPrice),
@@ -89,9 +88,7 @@ export function sanitizeLines(input: unknown): Line[] {
     return {
       id: str(l.id, 40) || `l${i}-${Math.random().toString(36).slice(2, 8)}`,
       bookId: typeof l.bookId === "string" && l.bookId ? l.bookId : null,
-      shortName: str(l.shortName, 200),
-      fullName: str(l.fullName, 300),
-      nameMode: l.nameMode === "full" ? "full" : "short",
+      name: str(l.name, 300),
       publisher: str(l.publisher, 120),
       category: str(l.category, 120),
       qty: clampNum(l.qty, 0, 1_000_000),

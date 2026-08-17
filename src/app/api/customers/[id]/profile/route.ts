@@ -47,8 +47,8 @@ export async function GET(_req: Request, { params }: Ctx) {
       { $match: { "lines.qty": { $gt: 0 } } },
       {
         $group: {
-          _id: { $ifNull: ["$lines.bookId", { $concat: ["~", "$lines.shortName"] }] },
-          name: { $last: "$lines.shortName" },
+          _id: { $ifNull: ["$lines.bookId", { $concat: ["~", "$lines.name"] }] },
+          name: { $last: "$lines.name" },
           publisher: { $last: "$lines.publisher" },
           qty: { $sum: "$lines.qty" },
           revenue: { $sum: { $multiply: ["$lines.qty", "$lines.unitPrice"] } },

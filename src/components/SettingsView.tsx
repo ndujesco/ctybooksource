@@ -5,19 +5,13 @@ import { Trash2 } from "lucide-react";
 import {
   FONT_STEPS,
   setBusiness,
-  setDefaultNameMode,
   setFontScale,
   setToggles,
   type Business,
   type HeaderToggles,
 } from "@/lib/settings";
-import {
-  useBusiness,
-  useDefaultNameMode,
-  useFontScale,
-  useHeaderToggles,
-} from "@/lib/use-settings";
-import { Labelled, PageHeader, Section, Segmented } from "@/components/ui";
+import { useBusiness, useFontScale, useHeaderToggles } from "@/lib/use-settings";
+import { Labelled, PageHeader, Section } from "@/components/ui";
 
 export default function SettingsView() {
   // Every control here writes straight through to the store, and the store is
@@ -26,7 +20,6 @@ export default function SettingsView() {
   const business = useBusiness();
   const toggles = useHeaderToggles();
   const scale = useFontScale();
-  const nameMode = useDefaultNameMode();
 
   const patchBusiness = (patch: Partial<Business>) => setBusiness({ ...business, ...patch });
   const patchToggle = (key: keyof HeaderToggles) =>
@@ -94,26 +87,6 @@ export default function SettingsView() {
             </li>
           ))}
         </ul>
-      </Section>
-
-      <Section title="Book names">
-        <div className="card px-3.5 py-3.5">
-          <p className="mb-2 text-sm text-[var(--ink-2)]">
-            Which name a book starts with when you add it to an invoice. You can still switch any
-            single line afterwards.
-          </p>
-          <Segmented
-            label="Default book name"
-            value={nameMode}
-            options={[
-              { value: "short", label: "Short name" },
-              { value: "full", label: "Full title" },
-            ]}
-            onChange={(v) => {
-              setDefaultNameMode(v);
-            }}
-          />
-        </div>
       </Section>
 
       <Section title="Text size">

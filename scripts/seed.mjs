@@ -58,8 +58,8 @@ async function main() {
   console.log(`Seeding ${BASE} …`);
 
   const books = [];
-  for (const [shortName, fullName, publisher, category, costPrice, sellingPrice] of BOOKS) {
-    books.push(await api("/books", "POST", { shortName, fullName, publisher, category, costPrice, sellingPrice }));
+  for (const [name, , publisher, category, costPrice, sellingPrice] of BOOKS) {
+    books.push(await api("/books", "POST", { name, publisher, category, costPrice, sellingPrice }));
   }
   console.log(`  ${books.length} books`);
 
@@ -93,9 +93,7 @@ async function main() {
         lines.push({
           id: `l${invoiceCount}-${i}`,
           bookId: book.id,
-          shortName: book.shortName,
-          fullName: book.fullName,
-          nameMode: rnd() < 0.15 ? "full" : "short",
+          name: book.name,
           publisher: book.publisher,
           category: book.category,
           qty: between(5, 120),

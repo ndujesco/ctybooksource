@@ -268,8 +268,7 @@ export async function POST(req: Request) {
       book: book
         ? {
             id: book.id,
-            shortName: book.shortName,
-            fullName: book.fullName,
+            name: book.name,
             publisher: book.publisher,
             category: book.category,
             costPrice: book.costPrice,

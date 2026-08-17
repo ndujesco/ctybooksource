@@ -1,6 +1,6 @@
 /**
  * Drive the core job through the UI, the way it's actually done:
- * new invoice → pick a school → add books → switch a line to its full title →
+ * new invoice → pick a school → add books →
  * record a part payment → confirm the saved document matches the screen.
  */
 import puppeteer from "puppeteer-core";
@@ -37,10 +37,14 @@ const step = (label, ok, extra = "") => {
   if (!ok) process.exitCode = 1;
 };
 
-await page.goto(BASE, { waitUntil: "networkidle2" });
+await page.goto(`${BASE}/invoices`, { waitUntil: "networkidle2" });
 await wait(2500);
 
-step("open ledger", await clickText("New invoice"));
+step("open a new invoice", await page.evaluate(() => {
+  const b = document.querySelector('button[aria-label="New invoice"]');
+  if (b) b.click();
+  return !!b;
+}));
 await page.waitForFunction(() => location.pathname.startsWith("/invoices/"), { timeout: 20000 });
 await wait(2500);
 const invoiceId = page.url().split("/").pop();
@@ -73,16 +77,6 @@ await page.evaluate(() => {
 });
 await wait(1500);
 
-// Switch the first line to its full title
-const switched = await page.evaluate(() => {
-  const btn = [...document.querySelectorAll('button[aria-pressed]')].find(
-    (b) => b.textContent.trim() === "Full"
-  );
-  if (btn) btn.click();
-  return !!btn;
-});
-step("switch a line to full title", switched);
-await wait(1500);
 
 // Part payment
 step("open payment form", await clickText("Record a payment"));
@@ -113,7 +107,6 @@ step("invoice promoted from draft", saved.status === "open", `status=${saved.sta
 step("customer saved", !!saved.customerName, saved.customerName);
 step("lines saved", saved.lines.length === 2, `${saved.lines.length} lines`);
 step("quantity saved", saved.lines[0].qty === 40, `qty=${saved.lines[0].qty}`);
-step("full-title mode saved", saved.lines[0].nameMode === "full", saved.lines[0].nameMode);
 step("payment saved", saved.amountPaid === 5000, `paid=${saved.amountPaid}`);
 step(
   "server totals agree with the lines",

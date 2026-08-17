@@ -5,7 +5,6 @@ import {
   DEFAULT_BUSINESS,
   DEFAULT_TOGGLES,
   getBusiness,
-  getDefaultNameMode,
   getFontScale,
   getToggles,
   subscribeToSettings,
@@ -29,10 +28,6 @@ export function useBusiness(): Business {
 
 export function useHeaderToggles(): HeaderToggles {
   return useSyncExternalStore(subscribeToSettings, getToggles, () => DEFAULT_TOGGLES);
-}
-
-export function useDefaultNameMode(): "short" | "full" {
-  return useSyncExternalStore(subscribeToSettings, getDefaultNameMode, () => "short" as const);
 }
 
 export function useFontScale(): number {

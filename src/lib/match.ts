@@ -88,7 +88,7 @@ export function matchBook(written: string, catalogue: Book[]): BookMatch | null 
   let best: BookMatch | null = null;
 
   for (const book of catalogue) {
-    for (const candidate of [book.shortName, book.fullName]) {
+    for (const candidate of [book.name]) {
       const tokens = tokenize(candidate);
       if (!tokens.length) continue;
 

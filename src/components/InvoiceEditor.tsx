@@ -43,7 +43,7 @@ import {
 } from "@/lib/types";
 import { formatDate, today } from "@/lib/datetime";
 import { spineColor } from "@/lib/spine";
-import { useBusiness, useDefaultNameMode, useHeaderToggles } from "@/lib/use-settings";
+import { useBusiness, useHeaderToggles } from "@/lib/use-settings";
 
 const SAVE_DEBOUNCE = 700;
 
@@ -79,7 +79,6 @@ export default function InvoiceEditor({ id }: { id: string }) {
   // The letterhead for the print-only copy of the document.
   const business = useBusiness();
   const toggles = useHeaderToggles();
-  const defaultNameMode = useDefaultNameMode();
 
   /* -- Load ------------------------------------------------------------- */
 
@@ -187,9 +186,7 @@ export default function InvoiceEditor({ id }: { id: string }) {
     const line: Line = {
       id: `l${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
       bookId: b.id,
-      shortName: b.shortName,
-      fullName: b.fullName,
-      nameMode: defaultNameMode,
+      name: b.name,
       publisher: b.publisher,
       category: b.category,
       qty: 1,
@@ -576,10 +573,6 @@ function LineRow({
   onPatch: (p: Partial<Line>) => void;
   onRemove: () => void;
 }) {
-  const showingFull = line.nameMode === "full";
-  const alternate = showingFull ? line.shortName : line.fullName;
-  const bothNames = Boolean(line.shortName && line.fullName && line.shortName !== line.fullName);
-
   return (
     <li className="card flex gap-2.5 p-2.5">
       <Spine color={spineColor(line.publisher)} title={line.publisher} />
@@ -587,10 +580,8 @@ function LineRow({
         <div className="flex items-start gap-2">
           <input
             className="field flex-1 py-1 font-medium"
-            value={showingFull ? line.fullName : line.shortName}
-            onChange={(e) =>
-              onPatch(showingFull ? { fullName: e.target.value } : { shortName: e.target.value })
-            }
+            value={line.name}
+            onChange={(e) => onPatch({ name: e.target.value })}
             aria-label="Book name"
           />
           <button
@@ -601,33 +592,6 @@ function LineRow({
             <X size={16} />
           </button>
         </div>
-
-        {/* Which name prints. Short is the default; full is one tap away. */}
-        {bothNames && (
-          <div className="mt-1.5 flex items-center gap-2">
-            <div className="segment" role="group" aria-label="Name shown on the invoice">
-              <button
-                type="button"
-                data-on={!showingFull}
-                aria-pressed={!showingFull}
-                onClick={() => onPatch({ nameMode: "short" })}
-              >
-                Short
-              </button>
-              <button
-                type="button"
-                data-on={showingFull}
-                aria-pressed={showingFull}
-                onClick={() => onPatch({ nameMode: "full" })}
-              >
-                Full
-              </button>
-            </div>
-            <span className="min-w-0 flex-1 truncate text-xs text-[var(--ink-3)]" title={alternate}>
-              {alternate}
-            </span>
-          </div>
-        )}
 
         <div className="mt-2 flex items-center gap-2">
           <label className="flex items-center gap-1.5">

@@ -16,19 +16,14 @@ export async function GET(req: Request) {
   if (!includeArchived) filter.archived = { $ne: true };
   if (q) {
     const rx = { $regex: escapeRegex(q), $options: "i" };
-    filter.$or = [
-      { shortName: rx },
-      { fullName: rx },
-      { publisher: rx },
-      { category: rx },
-    ];
+    filter.$or = [{ name: rx }, { publisher: rx }, { category: rx }];
   }
 
   const col = await books();
   const docs = await col
     .find(filter)
     .collation({ locale: "en", strength: 1 }) // case-insensitive sort
-    .sort({ shortName: 1 })
+    .sort({ name: 1 })
     .limit(2000)
     .toArray();
 
@@ -40,8 +35,7 @@ export async function POST(req: Request) {
   const body = await readBody(req);
   const now = new Date();
   const doc: BookDoc = {
-    shortName: str(body.shortName, 200).trim(),
-    fullName: str(body.fullName, 300).trim(),
+    name: str(body.name, 300).trim(),
     publisher: str(body.publisher, 120).trim(),
     category: str(body.category, 120).trim(),
     costPrice: clampNum(body.costPrice, 0, 100_000_000),
@@ -50,13 +44,9 @@ export async function POST(req: Request) {
     createdAt: now,
     updatedAt: now,
   };
-  if (!doc.shortName && !doc.fullName) {
+  if (!doc.name) {
     return NextResponse.json({ error: "A book needs a name" }, { status: 400 });
   }
-  // If only one name was given, mirror it so invoices always have something
-  // to print in either mode.
-  if (!doc.shortName) doc.shortName = doc.fullName;
-  if (!doc.fullName) doc.fullName = doc.shortName;
 
   const col = await books();
   const { insertedId } = await col.insertOne(doc);

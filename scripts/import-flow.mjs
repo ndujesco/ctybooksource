@@ -36,14 +36,14 @@ const ORDER = `Order for Divine Grace Schools, 18 Agege Motor Road Oshodi. 09077
 lantern basic sci 2 ......... 80
 A Book We Do Not Stock  5`;
 
-await page.goto(BASE, { waitUntil: "networkidle2" });
-// The ledger renders its actions only once the overview request lands.
-await page.waitForFunction(
-  () => [...document.querySelectorAll("button")].some((b) => b.textContent.includes("From a list")),
-  { timeout: 60000 }
-);
+await page.goto(`${BASE}/invoices`, { waitUntil: "networkidle2" });
+await page.waitForSelector('button[aria-label="Build an invoice from a list"]', { timeout: 60000 });
 
-step("open the import sheet", await clickText("From a list"));
+step("open the import sheet", await page.evaluate(() => {
+  const b = document.querySelector('button[aria-label="Build an invoice from a list"]');
+  if (b) b.click();
+  return !!b;
+}));
 await page.waitForSelector('[role="dialog"] textarea', { timeout: 15000 });
 
 await page.evaluate((text) => {
