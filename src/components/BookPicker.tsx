@@ -113,14 +113,16 @@ export default function BookPicker({
    Two families:
    • Class 0–6 (choose any span within it)
    • Age brackets 4-5 … 11-12, for books like Bond (choose any span) */
-type RangeFamily = "none" | "class" | "age";
+type RangeFamily = "none" | "class" | "secondary" | "age";
 
 const CLASS_UNITS = ["Class 0", "Class 1", "Class 2", "Class 3", "Class 4", "Class 5", "Class 6"];
 const AGE_UNITS = ["4-5", "5-6", "6-7", "7-8", "8-9", "9-10", "10-11", "11-12"];
+const SECONDARY_UNITS = ["JSS 1", "JSS 2", "JSS 3", "SSS 1", "SSS 2", "SSS 3"];
 
 const RANGE_FAMILIES: { value: RangeFamily; label: string; units: string[] }[] = [
   { value: "none", label: "Just this book", units: [] },
   { value: "class", label: "Class 0–6", units: CLASS_UNITS },
+  { value: "secondary", label: "JSS 1 to SSS 3", units: SECONDARY_UNITS },
   { value: "age", label: "Age 4-5 to 11-12 (Bond, etc.)", units: AGE_UNITS },
 ];
 

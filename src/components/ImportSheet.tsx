@@ -14,6 +14,7 @@ import Sheet from "@/components/Sheet";
 import BookPicker from "@/components/BookPicker";
 import { ErrorNote, Spine } from "@/components/ui";
 import {
+  createBook,
   createCustomer,
   createInvoice,
   extractOrder,
@@ -115,16 +116,42 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
         customerId = (await createCustomer(customer)).id;
       }
 
-      const lines: Line[] = drafts.map((d) => ({
-        id: lineId(),
-        bookId: d.book?.id ?? null,
-        name: d.book?.name ?? d.written,
-        publisher: d.book?.publisher ?? "",
-        category: d.book?.category ?? "",
-        qty: d.qty,
-        unitPrice: d.unitPrice,
-        costPrice: d.book?.costPrice ?? 0,
-      }));
+      // A book the AI read that isn't already on the shelf gets added there
+      // now, so it's available next time and its sales start being tracked.
+      const lines: Line[] = await Promise.all(
+        drafts.map(async (d) => {
+          let book = d.book;
+          if (!book?.id) {
+            const name = (d.book?.name ?? d.written).trim();
+            if (name) {
+              const created = await createBook({
+                name,
+                publisher: d.book?.publisher ?? "",
+                costPrice: d.book?.costPrice ?? 0,
+                sellingPrice: d.unitPrice || d.book?.sellingPrice || 0,
+              });
+              book = {
+                id: created.id,
+                name: created.name,
+                publisher: created.publisher,
+                category: created.category,
+                costPrice: created.costPrice,
+                sellingPrice: created.sellingPrice,
+              };
+            }
+          }
+          return {
+            id: lineId(),
+            bookId: book?.id ?? null,
+            name: book?.name ?? d.written,
+            publisher: book?.publisher ?? "",
+            category: book?.category ?? "",
+            qty: d.qty,
+            unitPrice: d.unitPrice,
+            costPrice: book?.costPrice ?? 0,
+          };
+        })
+      );
 
       const invoice = await createInvoice({
         date: today(),
@@ -296,11 +323,12 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
               {unmatched > 0 && (
                 <p>
                   <span className="font-semibold text-[var(--ink)]">
-                    {unmatched} {unmatched === 1 ? "book isn't" : "books aren't"} on your shelf.
+                    {unmatched} {unmatched === 1 ? "book isn't" : "books aren't"} on your shelf yet.
                   </span>{" "}
-                  {unmatched === 1 ? "It" : "They"}&rsquo;ll still go on the invoice, but with no
-                  cost price {unmatched === 1 ? "it counts" : "they count"} as pure profit in the
-                  reports. Match {unmatched === 1 ? "it" : "them"} above to fix that.
+                  {unmatched === 1 ? "It" : "They"}&rsquo;ll be added automatically when you create
+                  the invoice, but with no cost price {unmatched === 1 ? "it counts" : "they count"}{" "}
+                  as pure profit until you set one on the Books tab. Match{" "}
+                  {unmatched === 1 ? "it" : "them"} above to use an existing book instead.
                 </p>
               )}
               {noCost > 0 && (
