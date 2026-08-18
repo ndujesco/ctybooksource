@@ -105,14 +105,31 @@ export default function BookPicker({
   );
 }
 
+/* A book series can span a whole set of classes. Picking a range creates one
+   book per class, e.g. "Understanding Maths" → "Understanding Maths Primary 1"
+   … "Primary 6", all sharing the price you typed. */
+const CLASS_RANGES: { value: string; label: string; classes: string[] }[] = [
+  { value: "", label: "Just this book", classes: [] },
+  { value: "nursery", label: "Nursery 1–3", classes: ["Nursery 1", "Nursery 2", "Nursery 3"] },
+  {
+    value: "primary",
+    label: "Primary 1–6",
+    classes: ["Primary 1", "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6"],
+  },
+  { value: "jss", label: "JSS 1–3", classes: ["JSS 1", "JSS 2", "JSS 3"] },
+  { value: "sss", label: "SSS 1–3", classes: ["SSS 1", "SSS 2", "SSS 3"] },
+];
+
 export function NewBookForm({
   initialName = "",
   onCreated,
   onCancel,
+  allowRange = false,
 }: {
   initialName?: string;
   onCreated: (b: Book) => void;
   onCancel?: () => void;
+  allowRange?: boolean;
 }) {
   const [form, setForm] = useState({
     name: initialName,
@@ -120,24 +137,33 @@ export function NewBookForm({
     costPrice: "",
     sellingPrice: "",
   });
+  const [range, setRange] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  const classes = CLASS_RANGES.find((r) => r.value === range)?.classes ?? [];
+  const baseName = form.name.trim();
+  // The exact list of book names that will be created.
+  const names = classes.length ? classes.map((c) => `${baseName} ${c}`) : [baseName];
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!baseName) return;
     setSaving(true);
     setError("");
     try {
-      const book = await createBook({
-        name: form.name.trim(),
+      const payload = {
         publisher: form.publisher.trim(),
         costPrice: Number(form.costPrice) || 0,
         sellingPrice: Number(form.sellingPrice) || 0,
-      });
-      onCreated(book);
+      };
+      // Create every book in the range with the same price; keep the first to
+      // hand back to callers that add straight to an invoice.
+      const created = await Promise.all(names.map((name) => createBook({ ...payload, name })));
+      onCreated(created[0]);
     } catch (err) {
       setError((err as Error).message);
       setSaving(false);
@@ -148,16 +174,35 @@ export function NewBookForm({
     <form onSubmit={submit} className="space-y-3">
       {error && <ErrorNote>{error}</ErrorNote>}
 
-      <Labelled label="Book name" hint="What prints on the invoice — e.g. “Oxford Maths 5”.">
+      <Labelled
+        label={allowRange ? "Book or series name" : "Book name"}
+        hint="Only this is required — publisher and prices can wait."
+      >
         <input className="field mt-1" value={form.name} onChange={set("name")} autoFocus required />
       </Labelled>
 
-      <Labelled label="Publisher">
+      {allowRange && (
+        <Labelled label="Classes" hint="Add the whole series at once — one book per class.">
+          <select
+            className="field mt-1"
+            value={range}
+            onChange={(e) => setRange(e.target.value)}
+          >
+            {CLASS_RANGES.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </Labelled>
+      )}
+
+      <Labelled label="Publisher (optional)">
         <input className="field mt-1" value={form.publisher} onChange={set("publisher")} placeholder="Oxford" />
       </Labelled>
 
       <div className="grid grid-cols-2 gap-3">
-        <Labelled label="Cost price" hint="What you pay. Drives profit.">
+        <Labelled label="Cost price (optional)" hint="What you pay. Drives profit.">
           <input
             className="field figure mt-1"
             inputMode="decimal"
@@ -168,7 +213,7 @@ export function NewBookForm({
             placeholder="0"
           />
         </Labelled>
-        <Labelled label="Selling price">
+        <Labelled label="Selling price (optional)">
           <input
             className="field figure mt-1"
             inputMode="decimal"
@@ -181,9 +226,16 @@ export function NewBookForm({
         </Labelled>
       </div>
 
-      <p className="text-xs text-[var(--ink-3)]">
-        No stock count is kept — selling a book never changes anything here.
-      </p>
+      {classes.length > 0 && baseName ? (
+        <p className="text-xs text-[var(--ink-3)]">
+          Creates {names.length} books — {names[0]} … {names[names.length - 1]}. The price applies
+          to all; edit any of them later.
+        </p>
+      ) : (
+        <p className="text-xs text-[var(--ink-3)]">
+          No stock count is kept — selling a book never changes anything here.
+        </p>
+      )}
 
       <div className="flex gap-2 pt-1">
         {onCancel && (
@@ -191,8 +243,12 @@ export function NewBookForm({
             Cancel
           </button>
         )}
-        <button className="btn btn-ink flex-1" disabled={saving || !form.name.trim()}>
-          {saving ? "Saving…" : "Save book"}
+        <button className="btn btn-ink flex-1" disabled={saving || !baseName}>
+          {saving
+            ? "Saving…"
+            : classes.length > 0
+            ? `Save ${names.length} books`
+            : "Save book"}
         </button>
       </div>
     </form>

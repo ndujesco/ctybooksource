@@ -122,6 +122,7 @@ export default function BooksView() {
 
       <Sheet open={adding} title="Add a book" onClose={() => setAdding(false)}>
         <NewBookForm
+          allowRange
           onCancel={() => setAdding(false)}
           onCreated={() => {
             setAdding(false);

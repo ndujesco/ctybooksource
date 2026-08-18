@@ -182,9 +182,6 @@ const InvoiceDocument = forwardRef<HTMLDivElement, Props>(function InvoiceDocume
               <td style={{ ...td, ...figure, color: FAINT, fontSize: 11 }}>{i + 1}</td>
               <td style={td}>
                 <span style={{ fontWeight: 500 }}>{lineName(l)}</span>
-                {l.publisher && (
-                  <span style={{ display: "block", fontSize: 10.5, color: FAINT }}>{l.publisher}</span>
-                )}
               </td>
               <td style={{ ...td, ...figure, textAlign: "right" }}>{l.qty}</td>
               <td style={{ ...td, ...figure, textAlign: "right" }}>{formatMoney(l.unitPrice)}</td>

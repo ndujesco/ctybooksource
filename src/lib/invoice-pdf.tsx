@@ -149,7 +149,6 @@ function InvoicePdf({ invoice, business, toggles }: { invoice: Invoice; business
             <Text style={[s.td, s.cNum, s.fig, { color: FAINT, fontSize: 8 }]}>{i + 1}</Text>
             <View style={[s.td, { flex: 1, paddingRight: 6 }]}>
               <Text>{lineName(l)}</Text>
-              {!!l.publisher && <Text style={{ fontSize: 7.5, color: FAINT }}>{l.publisher}</Text>}
             </View>
             <Text style={[s.td, s.cQty, s.fig]}>{l.qty}</Text>
             <Text style={[s.td, s.cPrice, s.fig]}>{formatMoney(l.unitPrice)}</Text>

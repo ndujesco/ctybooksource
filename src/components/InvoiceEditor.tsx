@@ -12,7 +12,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import BookPicker from "@/components/BookPicker";
+import BookAutocomplete from "@/components/BookAutocomplete";
 import CustomerPicker from "@/components/CustomerPicker";
 import ShareSheet from "@/components/ShareSheet";
 import InvoiceDocument from "@/components/InvoiceDocument";
@@ -67,7 +67,6 @@ export default function InvoiceEditor({ id }: { id: string }) {
   const [error, setError] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
 
-  const [pickBook, setPickBook] = useState(false);
   const [pickCustomer, setPickCustomer] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [addingPayment, setAddingPayment] = useState(false);
@@ -364,7 +363,7 @@ export default function InvoiceEditor({ id }: { id: string }) {
 
         {form.lines.length === 0 && (
           <p className="py-3 text-sm text-[var(--ink-3)]">
-            Nothing on this invoice yet. Add the first book below.
+            Nothing on this invoice yet. Type a book name below to add it.
           </p>
         )}
 
@@ -379,9 +378,7 @@ export default function InvoiceEditor({ id }: { id: string }) {
           ))}
         </ul>
 
-        <button className="btn btn-quiet mt-3 w-full" onClick={() => setPickBook(true)}>
-          <Plus size={17} /> Add book
-        </button>
+        <BookAutocomplete onAdd={addBook} />
       </section>
 
       {/* Money */}
@@ -523,7 +520,6 @@ export default function InvoiceEditor({ id }: { id: string }) {
         <InvoiceDocument invoice={live} business={business} toggles={toggles} />
       </div>
 
-      {pickBook && <BookPicker onClose={() => setPickBook(false)} onPick={addBook} />}
       {pickCustomer && (
         <CustomerPicker
           onClose={() => setPickCustomer(false)}
