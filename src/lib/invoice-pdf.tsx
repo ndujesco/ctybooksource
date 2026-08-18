@@ -207,8 +207,7 @@ function InvoicePdf({ invoice, business, toggles }: { invoice: Invoice; business
         )}
 
         <Text style={s.footer} fixed>
-          {totals.qty} {totals.qty === 1 ? "book" : "books"} · {invoiceNumberLabel(invoice.number)} ·
-          Thank you for your business.
+          {totals.qty} {totals.qty === 1 ? "book" : "books"} · {invoiceNumberLabel(invoice.number)}
         </Text>
       </Page>
     </Document>

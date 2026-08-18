@@ -30,7 +30,14 @@ export default function ShareSheet({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
-  const text = buildShareText(invoice, business, toggles);
+  // Per-share header: edit the shop name that prints, or drop it entirely, just
+  // for this send. The saved default on the Settings tab is left untouched.
+  const [showName, setShowName] = useState(toggles.name);
+  const [shopName, setShopName] = useState(business.name);
+  const shareBusiness = { ...business, name: shopName };
+  const shareToggles = { ...toggles, name: showName };
+
+  const text = buildShareText(invoice, shareBusiness, shareToggles);
   const baseName = `${invoiceNumberLabel(invoice.number)}-${(invoice.customerName || "invoice")
     .replace(/[^\w\s-]/g, "")
     .trim()
@@ -50,7 +57,7 @@ export default function ShareSheet({
 
   const savePdf = () =>
     run("pdf", async () => {
-      const blob = await fetchInvoicePdf(invoice.id, { business, toggles });
+      const blob = await fetchInvoicePdf(invoice.id, { business: shareBusiness, toggles: shareToggles });
       await shareFile(blob, `${baseName}.pdf`, text);
     });
 
@@ -113,10 +120,33 @@ export default function ShareSheet({
         </button>
       </div>
 
+      <div className="mt-4 rounded-xl border border-[var(--rule)] p-3">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={showName}
+            onChange={(e) => setShowName(e.target.checked)}
+          />
+          Show shop name on this invoice
+        </label>
+        {showName && (
+          <input
+            className="field mt-2"
+            value={shopName}
+            onChange={(e) => setShopName(e.target.value)}
+            placeholder="Shop name"
+            aria-label="Shop name"
+          />
+        )}
+        <p className="mt-2 text-xs text-[var(--ink-3)]">
+          Only affects this share — your saved default stays as it is.
+        </p>
+      </div>
+
       <p className="mt-3 mb-2 eyebrow">Preview</p>
       <div className="card overflow-hidden">
         <ScaledPreview width={680}>
-          <InvoiceDocument ref={docRef} invoice={invoice} business={business} toggles={toggles} />
+          <InvoiceDocument ref={docRef} invoice={invoice} business={shareBusiness} toggles={shareToggles} />
         </ScaledPreview>
       </div>
     </Sheet>

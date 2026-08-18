@@ -105,19 +105,23 @@ export default function BookPicker({
   );
 }
 
-/* A book series can span a whole set of classes. Picking a range creates one
-   book per class, e.g. "Understanding Maths" → "Understanding Maths Primary 1"
-   … "Primary 6", all sharing the price you typed. */
-const CLASS_RANGES: { value: string; label: string; classes: string[] }[] = [
-  { value: "", label: "Just this book", classes: [] },
-  { value: "nursery", label: "Nursery 1–3", classes: ["Nursery 1", "Nursery 2", "Nursery 3"] },
-  {
-    value: "primary",
-    label: "Primary 1–6",
-    classes: ["Primary 1", "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6"],
-  },
-  { value: "jss", label: "JSS 1–3", classes: ["JSS 1", "JSS 2", "JSS 3"] },
-  { value: "sss", label: "SSS 1–3", classes: ["SSS 1", "SSS 2", "SSS 3"] },
+/* A book series can span a whole set of classes or age brackets. Picking a
+   range creates one book per step, e.g. "Understanding Maths" →
+   "Understanding Maths Class 1" … "Class 6", or "Bond" → "Bond 4-5" …
+   "Bond 11-12", all sharing the price you typed.
+
+   Two families:
+   • Class 0–6 (choose any span within it)
+   • Age brackets 4-5 … 11-12, for books like Bond (choose any span) */
+type RangeFamily = "none" | "class" | "age";
+
+const CLASS_UNITS = ["Class 0", "Class 1", "Class 2", "Class 3", "Class 4", "Class 5", "Class 6"];
+const AGE_UNITS = ["4-5", "5-6", "6-7", "7-8", "8-9", "9-10", "10-11", "11-12"];
+
+const RANGE_FAMILIES: { value: RangeFamily; label: string; units: string[] }[] = [
+  { value: "none", label: "Just this book", units: [] },
+  { value: "class", label: "Class 0–6", units: CLASS_UNITS },
+  { value: "age", label: "Age 4-5 to 11-12 (Bond, etc.)", units: AGE_UNITS },
 ];
 
 export function NewBookForm({
@@ -137,17 +141,30 @@ export function NewBookForm({
     costPrice: "",
     sellingPrice: "",
   });
-  const [range, setRange] = useState("");
+  const [family, setFamily] = useState<RangeFamily>("none");
+  const [from, setFrom] = useState(0);
+  const [to, setTo] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const classes = CLASS_RANGES.find((r) => r.value === range)?.classes ?? [];
+  const units = RANGE_FAMILIES.find((r) => r.value === family)?.units ?? [];
   const baseName = form.name.trim();
+  // Guard the span even if the two selects momentarily cross.
+  const lo = Math.min(from, to);
+  const hi = Math.max(from, to);
+  const span = units.length ? units.slice(lo, hi + 1) : [];
   // The exact list of book names that will be created.
-  const names = classes.length ? classes.map((c) => `${baseName} ${c}`) : [baseName];
+  const names = span.length ? span.map((u) => `${baseName} ${u}`) : [baseName];
+
+  function pickFamily(next: RangeFamily) {
+    const nextUnits = RANGE_FAMILIES.find((r) => r.value === next)?.units ?? [];
+    setFamily(next);
+    setFrom(0);
+    setTo(nextUnits.length ? nextUnits.length - 1 : 0);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -182,18 +199,47 @@ export function NewBookForm({
       </Labelled>
 
       {allowRange && (
-        <Labelled label="Classes" hint="Add the whole series at once — one book per class.">
+        <Labelled label="Range" hint="Add a whole series at once — one book per step.">
           <select
             className="field mt-1"
-            value={range}
-            onChange={(e) => setRange(e.target.value)}
+            value={family}
+            onChange={(e) => pickFamily(e.target.value as RangeFamily)}
           >
-            {CLASS_RANGES.map((r) => (
+            {RANGE_FAMILIES.map((r) => (
               <option key={r.value} value={r.value}>
                 {r.label}
               </option>
             ))}
           </select>
+          {units.length > 0 && (
+            <div className="mt-2 flex items-center gap-2">
+              <select
+                className="field"
+                aria-label="From"
+                value={lo}
+                onChange={(e) => setFrom(Number(e.target.value))}
+              >
+                {units.map((u, i) => (
+                  <option key={u} value={i}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+              <span className="text-sm text-[var(--ink-3)]">to</span>
+              <select
+                className="field"
+                aria-label="To"
+                value={hi}
+                onChange={(e) => setTo(Number(e.target.value))}
+              >
+                {units.map((u, i) => (
+                  <option key={u} value={i}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </Labelled>
       )}
 
@@ -226,7 +272,7 @@ export function NewBookForm({
         </Labelled>
       </div>
 
-      {classes.length > 0 && baseName ? (
+      {span.length > 0 && baseName ? (
         <p className="text-xs text-[var(--ink-3)]">
           Creates {names.length} books — {names[0]} … {names[names.length - 1]}. The price applies
           to all; edit any of them later.
@@ -246,7 +292,7 @@ export function NewBookForm({
         <button className="btn btn-ink flex-1" disabled={saving || !baseName}>
           {saving
             ? "Saving…"
-            : classes.length > 0
+            : span.length > 0
             ? `Save ${names.length} books`
             : "Save book"}
         </button>

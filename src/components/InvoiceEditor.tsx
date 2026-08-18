@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Ban,
+  BookPlus,
   Check,
   ChevronLeft,
   Plus,
@@ -19,6 +20,7 @@ import InvoiceDocument from "@/components/InvoiceDocument";
 import { ErrorNote, Labelled, Loading, Money, Spine, StatusPill } from "@/components/ui";
 import {
   clearLocal,
+  createBook,
   getInvoice,
   loadLocal,
   saveInvoice,
@@ -205,6 +207,23 @@ export default function InvoiceEditor({ id }: { id: string }) {
     update({ lines: form.lines.filter((l) => l.id !== lineId) });
   }
 
+  // A line typed straight onto the invoice (or brought in by import) has no
+  // shelf entry behind it. Saving it adds a book, then links the line so the
+  // button drops away and the price/publisher can be edited on the Books tab.
+  async function saveLineToShelf(lineId: string) {
+    if (!form) return;
+    const line = form.lines.find((l) => l.id === lineId);
+    const name = line?.name.trim();
+    if (!line || !name) return;
+    const book = await createBook({
+      name,
+      publisher: line.publisher || "",
+      costPrice: line.costPrice || 0,
+      sellingPrice: line.unitPrice || 0,
+    });
+    patchLine(lineId, { bookId: book.id });
+  }
+
   /* -- Invoice actions --------------------------------------------------- */
 
   // The PDF is rendered server-side from the saved document, so anything still
@@ -374,6 +393,7 @@ export default function InvoiceEditor({ id }: { id: string }) {
               line={l}
               onPatch={(p) => patchLine(l.id, p)}
               onRemove={() => removeLine(l.id)}
+              onSaveToShelf={() => saveLineToShelf(l.id)}
             />
           ))}
         </ul>
@@ -564,11 +584,25 @@ function LineRow({
   line,
   onPatch,
   onRemove,
+  onSaveToShelf,
 }: {
   line: Line;
   onPatch: (p: Partial<Line>) => void;
   onRemove: () => void;
+  onSaveToShelf: () => Promise<void>;
 }) {
+  const [savingToShelf, setSavingToShelf] = useState(false);
+  const onShelf = !!line.bookId;
+
+  async function saveToShelf() {
+    setSavingToShelf(true);
+    try {
+      await onSaveToShelf();
+    } finally {
+      setSavingToShelf(false);
+    }
+  }
+
   return (
     <li className="card flex gap-2.5 p-2.5">
       <Spine color={spineColor(line.publisher)} title={line.publisher} />
@@ -588,6 +622,18 @@ function LineRow({
             <X size={16} />
           </button>
         </div>
+
+        {!onShelf && line.name.trim() && (
+          <button
+            type="button"
+            className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-[var(--gold)] disabled:opacity-60"
+            onClick={saveToShelf}
+            disabled={savingToShelf}
+          >
+            <BookPlus size={13} />
+            {savingToShelf ? "Saving…" : "Save to shelf"}
+          </button>
+        )}
 
         <div className="mt-2 flex items-center gap-2">
           <label className="flex items-center gap-1.5">

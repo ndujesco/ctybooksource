@@ -291,7 +291,7 @@ const InvoiceDocument = forwardRef<HTMLDivElement, Props>(function InvoiceDocume
 
       <div style={{ marginTop: 22, borderTop: `1px solid ${RULE}`, paddingTop: 8 }}>
         <span style={{ ...figure, fontSize: 10.5, color: FAINT }}>
-          {totals.qty} {totals.qty === 1 ? "book" : "books"} · Thank you for your business.
+          {totals.qty} {totals.qty === 1 ? "book" : "books"}
         </span>
       </div>
     </div>
