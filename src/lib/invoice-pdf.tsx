@@ -215,11 +215,13 @@ function InvoicePdf({ invoice, business, toggles }: { invoice: Invoice; business
 }
 
 export function invoiceFileName(invoice: Invoice, ext: string): string {
-  const who = (invoice.customerName || "invoice")
+  // Save under the school's name so it's easy to find on the phone; fall back
+  // to the invoice number when no school is named.
+  const who = (invoice.customerName || "")
     .replace(/[^\w\s-]/g, "")
     .trim()
     .replace(/\s+/g, "-");
-  return `${invoiceNumberLabel(invoice.number)}-${who}.${ext}`.toLowerCase();
+  return `${who || invoiceNumberLabel(invoice.number)}.${ext}`.toLowerCase();
 }
 
 export function renderInvoicePdf(

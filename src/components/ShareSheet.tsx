@@ -47,6 +47,10 @@ export default function ShareSheet({
     .replace(/[^\w\s-]/g, "")
     .trim()
     .replace(/\s+/g, "-")}`.toLowerCase();
+  // The PDF saves under the school's name, so it's easy to find on the phone.
+  const schoolFile =
+    (invoice.customerName || "").replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-") ||
+    invoiceNumberLabel(invoice.number);
 
   async function run(label: string, fn: () => Promise<void>) {
     setBusy(label);
@@ -63,7 +67,7 @@ export default function ShareSheet({
   const savePdf = () =>
     run("pdf", async () => {
       const blob = await fetchInvoicePdf(invoice.id, { business: shareBusiness, toggles: shareToggles });
-      await shareFile(blob, `${baseName}.pdf`, text);
+      await shareFile(blob, `${schoolFile}.pdf`, text);
     });
 
   const saveImage = () =>
