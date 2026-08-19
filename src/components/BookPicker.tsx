@@ -107,23 +107,24 @@ export default function BookPicker({
 
 /* A book series can span a whole set of classes or age brackets. Picking a
    range creates one book per step, e.g. "Understanding Maths" →
-   "Understanding Maths Class 1" … "Class 6", or "Bond" → "Bond 4-5" …
-   "Bond 11-12", all sharing the price you typed.
+   "Understanding Maths 1" … "Understanding Maths 6", or "Bond" → "Bond 4-5"
+   … "Bond 10-11", all sharing the price you typed. Choose any span within a
+   family with the from/to selectors. */
+type RangeFamily = "none" | "nursery" | "primary" | "js" | "ss" | "age";
 
-   Two families:
-   • Class 0–6 (choose any span within it)
-   • Age brackets 4-5 … 11-12, for books like Bond (choose any span) */
-type RangeFamily = "none" | "class" | "secondary" | "age";
-
-const CLASS_UNITS = ["Class 0", "Class 1", "Class 2", "Class 3", "Class 4", "Class 5", "Class 6"];
-const AGE_UNITS = ["4-5", "5-6", "6-7", "7-8", "8-9", "9-10", "10-11", "11-12"];
-const SECONDARY_UNITS = ["JSS 1", "JSS 2", "JSS 3", "SSS 1", "SSS 2", "SSS 3"];
+const NURSERY_UNITS = ["Nur. 1", "Nur. 2", "Nur. 3"];
+const PRIMARY_UNITS = ["0", "1", "2", "3", "4", "5", "6"];
+const JS_UNITS = ["JS1", "JS2", "JS3"];
+const SS_UNITS = ["SS1", "SS2", "SS3"];
+const AGE_UNITS = ["4-5", "5-6", "6-7", "7-8", "8-9", "9-10", "10-11"];
 
 const RANGE_FAMILIES: { value: RangeFamily; label: string; units: string[] }[] = [
   { value: "none", label: "Just this book", units: [] },
-  { value: "class", label: "Class 0–6", units: CLASS_UNITS },
-  { value: "secondary", label: "JSS 1 to SSS 3", units: SECONDARY_UNITS },
-  { value: "age", label: "Age 4-5 to 11-12 (Bond, etc.)", units: AGE_UNITS },
+  { value: "nursery", label: "Nur. 1-3", units: NURSERY_UNITS },
+  { value: "primary", label: "0 to 6", units: PRIMARY_UNITS },
+  { value: "js", label: "JS1 to JS3", units: JS_UNITS },
+  { value: "ss", label: "SS1 to SS3", units: SS_UNITS },
+  { value: "age", label: "4-5 to 10-11 (Bond, etc.)", units: AGE_UNITS },
 ];
 
 export function NewBookForm({

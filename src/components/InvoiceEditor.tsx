@@ -26,6 +26,7 @@ import {
   saveInvoice,
   saveLocal,
   trashInvoice,
+  updateBook,
   type InvoicePatch,
 } from "@/lib/client";
 import {
@@ -207,21 +208,27 @@ export default function InvoiceEditor({ id }: { id: string }) {
     update({ lines: form.lines.filter((l) => l.id !== lineId) });
   }
 
-  // A line typed straight onto the invoice (or brought in by import) has no
-  // shelf entry behind it. Saving it adds a book, then links the line so the
-  // button drops away and the price/publisher can be edited on the Books tab.
-  async function saveLineToShelf(lineId: string) {
+  // Keep the shelf in step with what's on the invoice. A line with no book
+  // behind it (typed by hand or brought in by import) gets one created and
+  // linked; a line already linked pushes its edited name/publisher/price back
+  // to that book, so renaming here reflects on the shelf too.
+  async function syncLineToShelf(lineId: string) {
     if (!form) return;
     const line = form.lines.find((l) => l.id === lineId);
     const name = line?.name.trim();
     if (!line || !name) return;
-    const book = await createBook({
+    const data = {
       name,
       publisher: line.publisher || "",
       costPrice: line.costPrice || 0,
       sellingPrice: line.unitPrice || 0,
-    });
-    patchLine(lineId, { bookId: book.id });
+    };
+    if (line.bookId) {
+      await updateBook(line.bookId, data);
+    } else {
+      const book = await createBook(data);
+      patchLine(lineId, { bookId: book.id });
+    }
   }
 
   /* -- Invoice actions --------------------------------------------------- */
@@ -393,7 +400,7 @@ export default function InvoiceEditor({ id }: { id: string }) {
               line={l}
               onPatch={(p) => patchLine(l.id, p)}
               onRemove={() => removeLine(l.id)}
-              onSaveToShelf={() => saveLineToShelf(l.id)}
+              onSyncToShelf={() => syncLineToShelf(l.id)}
             />
           ))}
         </ul>
@@ -584,24 +591,39 @@ function LineRow({
   line,
   onPatch,
   onRemove,
-  onSaveToShelf,
+  onSyncToShelf,
 }: {
   line: Line;
   onPatch: (p: Partial<Line>) => void;
   onRemove: () => void;
-  onSaveToShelf: () => Promise<void>;
+  onSyncToShelf: () => Promise<void>;
 }) {
-  const [savingToShelf, setSavingToShelf] = useState(false);
-  const onShelf = !!line.bookId;
+  const [shelfState, setShelfState] = useState<"idle" | "busy" | "done">("idle");
+  const linked = !!line.bookId;
 
-  async function saveToShelf() {
-    setSavingToShelf(true);
+  async function syncToShelf() {
+    setShelfState("busy");
     try {
-      await onSaveToShelf();
-    } finally {
-      setSavingToShelf(false);
+      await onSyncToShelf();
+      setShelfState("done");
+      setTimeout(() => setShelfState("idle"), 1800);
+    } catch {
+      setShelfState("idle");
     }
   }
+
+  const shelfLabel =
+    shelfState === "busy"
+      ? linked
+        ? "Updating…"
+        : "Saving…"
+      : shelfState === "done"
+      ? linked
+        ? "Updated ✓"
+        : "Saved ✓"
+      : linked
+      ? "Update shelf"
+      : "Save to shelf";
 
   return (
     <li className="card flex gap-2.5 p-2.5">
@@ -623,15 +645,15 @@ function LineRow({
           </button>
         </div>
 
-        {!onShelf && line.name.trim() && (
+        {line.name.trim() && (
           <button
             type="button"
             className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-[var(--gold)] disabled:opacity-60"
-            onClick={saveToShelf}
-            disabled={savingToShelf}
+            onClick={syncToShelf}
+            disabled={shelfState !== "idle"}
           >
             <BookPlus size={13} />
-            {savingToShelf ? "Saving…" : "Save to shelf"}
+            {shelfLabel}
           </button>
         )}
 

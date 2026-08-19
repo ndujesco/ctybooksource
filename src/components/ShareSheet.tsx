@@ -37,6 +37,11 @@ export default function ShareSheet({
   const shareBusiness = { ...business, name: shopName };
   const shareToggles = { ...toggles, name: showName };
 
+  // A single image can only hold so many books before it overflows and reads
+  // badly. Past that, steer to the PDF, which paginates properly.
+  const IMAGE_LINE_LIMIT = 25;
+  const tooManyForImage = invoice.lines.length > IMAGE_LINE_LIMIT;
+
   const text = buildShareText(invoice, shareBusiness, shareToggles);
   const baseName = `${invoiceNumberLabel(invoice.number)}-${(invoice.customerName || "invoice")
     .replace(/[^\w\s-]/g, "")
@@ -109,16 +114,26 @@ export default function ShareSheet({
         <button className="btn btn-ink" onClick={savePdf} disabled={!!busy}>
           <FileDown size={17} /> {busy === "pdf" ? "Building…" : "PDF"}
         </button>
-        <button className="btn btn-quiet" onClick={saveImage} disabled={!!busy}>
-          <ImageIcon size={17} /> {busy === "image" ? "Rendering…" : "Image"}
-        </button>
-        <button className="btn btn-quiet" onClick={saveImageDirect} disabled={!!busy}>
-          <ImageIcon size={17} /> {busy === "image-save" ? "Saving…" : "Save to phone"}
-        </button>
         <button className="btn btn-quiet" onClick={() => window.print()} disabled={!!busy}>
           <Printer size={17} /> Print
         </button>
+        {!tooManyForImage && (
+          <>
+            <button className="btn btn-quiet" onClick={saveImage} disabled={!!busy}>
+              <ImageIcon size={17} /> {busy === "image" ? "Rendering…" : "Image"}
+            </button>
+            <button className="btn btn-quiet" onClick={saveImageDirect} disabled={!!busy}>
+              <ImageIcon size={17} /> {busy === "image-save" ? "Saving…" : "Save to phone"}
+            </button>
+          </>
+        )}
       </div>
+      {tooManyForImage && (
+        <p className="mt-2 text-xs text-[var(--ink-3)]">
+          This invoice has {invoice.lines.length} books — too many to fit one image cleanly. Send it
+          as a PDF instead; it flows across pages properly.
+        </p>
+      )}
 
       <div className="mt-4 rounded-xl border border-[var(--rule)] p-3">
         <label className="flex items-center gap-2 text-sm font-medium">

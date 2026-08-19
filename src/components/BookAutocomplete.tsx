@@ -99,7 +99,7 @@ export default function BookAutocomplete({ onAdd }: { onAdd: (book: Book) => voi
       </div>
 
       {open && query.length > 0 && (
-        <ul className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border border-[var(--rule)] bg-[var(--surface)] py-1 shadow-lg">
+        <ul className="absolute z-40 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border border-[var(--rule)] bg-[var(--card)] py-1 shadow-xl">
           {matches.map((b) => (
             <li key={b.id}>
               <button
