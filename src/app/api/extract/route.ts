@@ -33,6 +33,24 @@ CRITICAL — a price is NEVER below ₦150:
 - A quantity is how many copies; a price is money per copy. If a row shows two numbers (e.g. "50  1,800"), the value of 150 or more is the price and the smaller one is the quantity.
 - Never put a value under 150 in "price", and never default quantity to 1 when a number is shown — that number IS the quantity.
 
+EXPANDING RANGES — very important:
+Customers often order a whole series on one line by naming a range of classes, grades or age brackets. When a line covers a range, output ONE book per step in that range (inclusive) — NOT a single combined line. Give every expanded line the SAME quantity and SAME unit price as the range line. So "Phonics and Spelling, 4-5 to 10-11, 25 copies each at 2500 each" becomes seven separate books, each with quantity 25 and price 2500.
+
+Recognise these range styles and expand every step, whether the range is written with "to", "-", "–" or "through":
+- Age brackets, stepping by ONE year: "4-5 to 10-11" → 4-5, 5-6, 6-7, 7-8, 8-9, 9-10, 10-11.
+- Primary / class: "Primary 1 to 6", "class 1-6", "pry 1 to 6", "1 to 6" → Primary 1, Primary 2, … Primary 6.
+- Nursery: "Nursery 1 to 3" → Nursery 1, Nursery 2, Nursery 3.
+- Junior secondary: "JSS 1 to 3", "JS1 to JS3" → JSS 1, JSS 2, JSS 3.
+- Senior secondary: "SSS 1 to 3", "SS1 to SS3" → SSS 1, SSS 2, SSS 3.
+- Across junior and senior: "JSS 1 to SSS 3" → JSS 1, JSS 2, JSS 3, SSS 1, SSS 2, SSS 3.
+This applies no matter what the book title is — "Bond Maths 4-5 to 6-7" expands to Bond Maths 4-5, Bond Maths 5-6, Bond Maths 6-7. A range with no quantity still expands; each step just has quantity null.
+
+Naming the expanded books:
+- Write the title, then a space, then the step: "Phonics and Spelling 4-5", "Bond Maths 5-6", "Understanding Mathematics Primary 3", "Oxford English JSS 2". Keep the exact same title wording on every line of the series.
+- For age brackets write the bracket as digits with a hyphen ("4-5") — do NOT add words like "Ages", "Age" or "Years".
+
+Do NOT expand when the items are a bundle sold at one per-set price (e.g. "maths set (primary 1-6), 20 sets at 12000 per set") — keep that as a single line, because the price is for the whole set, not per class.
+
 Also pull out the customer when the source names one:
 - "customerName": the school, bookshop or person the order is for. Nigerian school names often end in School, College, Academy, Schools, Nursery/Primary, or Bookshop. Use null if no customer is named.
 - "customerPhone": their phone number if one appears, else null.
