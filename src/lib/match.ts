@@ -43,6 +43,16 @@ const SYNONYMS: Record<string, string> = {
 // Words that carry no distinguishing information on a book list.
 const STOP = new Set(["for", "the", "of", "and", "a", "an", "schools", "school", "series"]);
 
+// Structural words that describe a book's format or level, not *which* series
+// it is. Two titles differing only in these (with an equal level number) can
+// still be the same book — so the words that must actually agree are the ones
+// left over: the series/brand name and the subject.
+const GENERIC = new Set([
+  "book", "workbook", "textbook", "exercise", "pupil", "teacher", "guide",
+  "primary", "secondary", "nursery", "junior", "senior",
+  "jss", "sss", "js", "ss", "edition",
+]);
+
 function tokenize(raw: string): string[] {
   return (raw || "")
     .toLowerCase()
@@ -57,6 +67,39 @@ function tokenize(raw: string): string[] {
 
 function numbers(tokens: string[]): string[] {
   return tokens.filter((t) => /^\d+$/.test(t));
+}
+
+// The distinguishing words: brand/series and subject — everything that isn't a
+// structural word or a level number.
+function significant(tokens: string[]): string[] {
+  return tokens.filter((t) => !GENERIC.has(t) && !/^\d+$/.test(t));
+}
+
+// Two distinctive words agree if they're equal or one abbreviates the other,
+// so the shelf's "Under" still meets a written "Understanding". The length
+// floor stops accidental short prefixes (and real abbreviations like eng →
+// english are already unified by SYNONYMS).
+function compatible(a: string, b: string): boolean {
+  if (a === b) return true;
+  return a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a));
+}
+
+// Every distinctive word on one side finds a partner on the other.
+function covered(from: string[], into: string[]): boolean {
+  return from.every((a) => into.some((b) => compatible(a, b)));
+}
+
+/**
+ * Do the two titles name the same series and subject? "Learn Maths" and "Under
+ * Maths" share only the generic word "maths", so they must NOT agree — the
+ * brand words "learn" and "under" conflict. When one side has no distinctive
+ * word to go on, fall back to the overlap score alone.
+ */
+function brandAgrees(query: string[], candidate: string[]): boolean {
+  const dq = significant(query);
+  const dc = significant(candidate);
+  if (!dq.length || !dc.length) return true;
+  return covered(dq, dc) || covered(dc, dq);
 }
 
 /**
@@ -96,6 +139,9 @@ export function matchBook(written: string, catalogue: Book[]): BookMatch | null 
       // Never match across them, and never guess a level that wasn't written.
       const candidateNumbers = numbers(tokens);
       if (queryNumbers.join() !== candidateNumbers.join()) continue;
+
+      // The series and subject must agree — a shared "maths" is not enough.
+      if (!brandAgrees(query, tokens)) continue;
 
       const score = overlap(query, tokens);
       if (score > (best?.score ?? 0)) best = { book, score };

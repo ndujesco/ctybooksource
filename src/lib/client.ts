@@ -214,9 +214,10 @@ export type ExtractedBook = {
 export type ExtractedItem = {
   written: string; // the title as it appeared in the source
   quantity: number;
-  price: number;
-  priceFromCatalogue: boolean;
-  book: ExtractedBook | null; // null when nothing on the shelf matched
+  price: number; // from the source only — 0 when none was shown
+  // A shelf book this line probably means, offered as a suggestion for the
+  // user to accept. Never forced on — the line stands on its own if ignored.
+  suggestion: ExtractedBook | null;
 };
 
 export type Extraction = {

@@ -280,10 +280,10 @@ export async function POST(req: Request) {
     return {
       written: it.name,
       quantity: it.quantity ?? 1,
-      // The catalogue's selling price wins when the source didn't show one.
-      price: it.price ?? book?.sellingPrice ?? 0,
-      priceFromCatalogue: it.price == null && !!book?.sellingPrice,
-      book: book
+      // The price comes from the source only. The shelf's price rides along on
+      // the suggestion, applied only if the user accepts it.
+      price: it.price ?? 0,
+      suggestion: book
         ? {
             id: book.id,
             name: book.name,

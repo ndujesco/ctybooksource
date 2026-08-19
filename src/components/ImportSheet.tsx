@@ -18,10 +18,11 @@ import {
   createCustomer,
   createInvoice,
   extractOrder,
+  type ExtractedBook,
   type ExtractedItem,
   type Extraction,
 } from "@/lib/client";
-import { formatMoney, lineTotal, type Book, type Line } from "@/lib/types";
+import { formatMoney, lineTotal, type Line } from "@/lib/types";
 import { today } from "@/lib/datetime";
 import { spineColor } from "@/lib/spine";
 
@@ -30,21 +31,21 @@ const lineId = () => `l${Date.now().toString(36)}${Math.random().toString(36).sl
 /** An extracted item once it's editable in the review step. */
 type Draft = {
   key: string;
-  written: string;
-  book: ExtractedItem["book"];
+  written: string; // the name that will go on the invoice — editable
+  book: ExtractedBook | null; // a shelf book the user has accepted; null = new
+  suggestion: ExtractedBook | null; // a shelf match on offer, until accepted or dismissed
   qty: number;
   unitPrice: number;
-  priceFromCatalogue: boolean;
 };
 
 function toDrafts(items: ExtractedItem[]): Draft[] {
   return items.map((it, i) => ({
     key: `d${i}`,
     written: it.written,
-    book: it.book,
+    book: null,
+    suggestion: it.suggestion,
     qty: it.quantity,
     unitPrice: it.price,
-    priceFromCatalogue: it.priceFromCatalogue,
   }));
 }
 
@@ -88,22 +89,27 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
     setDrafts((prev) => prev?.map((d) => (d.key === key ? { ...d, ...next } : d)) ?? null);
   }
 
-  function attachBook(key: string, book: Book) {
-    patch(key, {
-      book: {
-        id: book.id,
-        name: book.name,
-        publisher: book.publisher,
-        category: book.category,
-        costPrice: book.costPrice,
-        sellingPrice: book.sellingPrice,
-      },
-      // Only fill the price from the shelf if the source didn't show one.
-      ...(drafts?.find((d) => d.key === key)?.priceFromCatalogue ||
-      !drafts?.find((d) => d.key === key)?.unitPrice
-        ? { unitPrice: book.sellingPrice, priceFromCatalogue: true }
-        : {}),
-    });
+  // Link a line to a shelf book — whether from the AI's suggestion or a manual
+  // pick. Adopt the shelf's clean name, and fill the price from it only when
+  // the source didn't already show one.
+  function linkBook(key: string, book: ExtractedBook) {
+    setDrafts((prev) =>
+      prev?.map((d) =>
+        d.key === key
+          ? {
+              ...d,
+              book,
+              suggestion: null,
+              written: book.name,
+              unitPrice: d.unitPrice > 0 ? d.unitPrice : book.sellingPrice,
+            }
+          : d
+      ) ?? null
+    );
+  }
+
+  function unlinkBook(key: string) {
+    patch(key, { book: null });
   }
 
   async function create() {
@@ -116,34 +122,28 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
         customerId = (await createCustomer(customer)).id;
       }
 
-      // A book the AI read that isn't already on the shelf gets added there
-      // now, so it's available next time and its sales start being tracked.
+      // A line the user linked to the shelf carries that book's id. A line
+      // left as new gets added to the shelf now, so it's there next time and
+      // its sales start being tracked.
       const lines: Line[] = await Promise.all(
         drafts.map(async (d) => {
+          const name = d.written.trim();
           let book = d.book;
-          if (!book?.id) {
-            const name = (d.book?.name ?? d.written).trim();
-            if (name) {
-              const created = await createBook({
-                name,
-                publisher: d.book?.publisher ?? "",
-                costPrice: d.book?.costPrice ?? 0,
-                sellingPrice: d.unitPrice || d.book?.sellingPrice || 0,
-              });
-              book = {
-                id: created.id,
-                name: created.name,
-                publisher: created.publisher,
-                category: created.category,
-                costPrice: created.costPrice,
-                sellingPrice: created.sellingPrice,
-              };
-            }
+          if (!book && name) {
+            const created = await createBook({ name, sellingPrice: d.unitPrice || 0 });
+            book = {
+              id: created.id,
+              name: created.name,
+              publisher: created.publisher,
+              category: created.category,
+              costPrice: created.costPrice,
+              sellingPrice: created.sellingPrice,
+            };
           }
           return {
             id: lineId(),
             bookId: book?.id ?? null,
-            name: book?.name ?? d.written,
+            name: name || d.written,
             publisher: book?.publisher ?? "",
             category: book?.category ?? "",
             qty: d.qty,
@@ -252,29 +252,70 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
                 <Spine color={d.book ? spineColor(d.book.publisher) : "var(--rule-strong)"} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {d.book?.name ?? d.written}
-                      </p>
-                      <p className="truncate text-xs text-[var(--ink-3)]">
-                        {d.book ? d.book.publisher || "No publisher" : `Read as “${d.written}”`}
-                      </p>
-                    </div>
+                    <input
+                      className="field flex-1 py-1 text-sm font-medium"
+                      value={d.written}
+                      onChange={(e) => patch(d.key, { written: e.target.value })}
+                      aria-label="Book name"
+                    />
                     <button
                       aria-label="Remove book"
-                      className="rounded-lg p-1 text-[var(--ink-3)] hover:bg-[var(--sunken)] hover:text-[var(--debit)]"
+                      className="mt-1 rounded-lg p-1 text-[var(--ink-3)] hover:bg-[var(--sunken)] hover:text-[var(--debit)]"
                       onClick={() => setDrafts(drafts.filter((x) => x.key !== d.key))}
                     >
                       <X size={16} />
                     </button>
                   </div>
 
-                  {!d.book && (
+                  {/* Linked to the shelf */}
+                  {d.book && (
+                    <div className="mt-1.5 flex items-center gap-2 text-xs">
+                      <span className="text-[var(--credit)]">
+                        ✓ On the shelf{d.book.publisher ? ` · ${d.book.publisher}` : ""}
+                      </span>
+                      <button
+                        className="text-[var(--ink-3)] underline underline-offset-2"
+                        onClick={() => unlinkBook(d.key)}
+                      >
+                        keep as new
+                      </button>
+                    </div>
+                  )}
+
+                  {/* A suggestion the user can take or leave */}
+                  {!d.book && d.suggestion && (
+                    <div className="mt-1.5 rounded-lg bg-[var(--sunken)] px-2.5 py-2 text-xs">
+                      <span className="text-[var(--ink-2)]">Did you mean </span>
+                      <span className="font-medium">{d.suggestion.name}</span>
+                      <span className="text-[var(--ink-3)]">
+                        {d.suggestion.publisher ? ` · ${d.suggestion.publisher}` : ""}
+                        {d.suggestion.sellingPrice > 0 ? ` · ${formatMoney(d.suggestion.sellingPrice)}` : ""}
+                      </span>
+                      <span className="text-[var(--ink-2)]">?</span>
+                      <div className="mt-1.5 flex gap-2">
+                        <button
+                          className="font-semibold text-[var(--gold)]"
+                          onClick={() => linkBook(d.key, d.suggestion!)}
+                        >
+                          Use this
+                        </button>
+                        <button
+                          className="text-[var(--ink-3)]"
+                          onClick={() => patch(d.key, { suggestion: null })}
+                        >
+                          No, keep mine
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* New book, no suggestion */}
+                  {!d.book && !d.suggestion && (
                     <button
                       className="btn btn-quiet mt-1.5 w-full py-1 text-xs"
                       onClick={() => setPickingFor(d.key)}
                     >
-                      <BookPlus size={14} /> Match to a book on the shelf
+                      <BookPlus size={14} /> New book — or match one on the shelf
                     </button>
                   )}
 
@@ -296,21 +337,13 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
                       inputMode="decimal"
                       min={0}
                       value={d.unitPrice}
-                      onChange={(e) =>
-                        patch(d.key, {
-                          unitPrice: Math.max(0, Number(e.target.value) || 0),
-                          priceFromCatalogue: false,
-                        })
-                      }
+                      onChange={(e) => patch(d.key, { unitPrice: Math.max(0, Number(e.target.value) || 0) })}
                       aria-label="Unit price"
                     />
                     <span className="figure w-24 shrink-0 text-right text-sm font-semibold">
                       {formatMoney(lineTotal({ qty: d.qty, unitPrice: d.unitPrice }))}
                     </span>
                   </div>
-                  {d.priceFromCatalogue && (
-                    <p className="mt-1 text-xs text-[var(--ink-3)]">Price from the shelf</p>
-                  )}
                 </div>
               </li>
             ))}
@@ -345,7 +378,14 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
           <BookPicker
             onClose={() => setPickingFor(null)}
             onPick={(book) => {
-              attachBook(pickingFor, book);
+              linkBook(pickingFor, {
+                id: book.id,
+                name: book.name,
+                publisher: book.publisher,
+                category: book.category,
+                costPrice: book.costPrice,
+                sellingPrice: book.sellingPrice,
+              });
               setPickingFor(null);
             }}
           />
