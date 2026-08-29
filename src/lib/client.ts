@@ -253,6 +253,31 @@ function toFormData({ text, files }: { text?: string; files?: File[] }): FormDat
   return fd;
 }
 
+export type ExtractedCatalogueItem = {
+  name: string;
+  publisher: string;
+  costPrice: number; // 0 when the source didn't show one
+  sellingPrice: number; // 0 when the source didn't show one
+  // A shelf book this one looks like already — offered as a heads-up, never
+  // forced on. The line still gets added as its own book if left alone.
+  existing: ExtractedBook | null;
+};
+
+export type BookExtraction = { items: ExtractedCatalogueItem[] };
+
+/** Turn a free-text description (or a price list photo/PDF) into catalogue entries. */
+export async function extractBooks(input: { text?: string; files?: File[] }): Promise<BookExtraction> {
+  const hasFiles = !!input.files?.length;
+  const res = hasFiles
+    ? await fetch("/api/books/extract", { method: "POST", body: toFormData(input) })
+    : await fetch("/api/books/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: input.text ?? "" }),
+      });
+  return json<BookExtraction>(res);
+}
+
 /* ---- Analytics --------------------------------------------------------- */
 
 export function getOverview<T>(): Promise<T> {

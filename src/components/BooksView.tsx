@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BookPlus, Pencil, Search } from "lucide-react";
+import { BookPlus, Pencil, Search, Sparkles } from "lucide-react";
 import Sheet from "@/components/Sheet";
 import { NewBookForm } from "@/components/BookPicker";
+import BookExtractSheet from "@/components/BookExtractSheet";
 import { archiveBook, deleteBook, listBooks, updateBook } from "@/lib/client";
 import { type Book } from "@/lib/types";
 import { spineColor } from "@/lib/spine";
@@ -15,6 +16,7 @@ export default function BooksView() {
   const [books, setBooks] = useState<Book[] | null>(null);
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
+  const [addingWithAI, setAddingWithAI] = useState(false);
   const [editing, setEditing] = useState<Book | null>(null);
 
   const load = useCallback(() => {
@@ -53,6 +55,13 @@ export default function BooksView() {
               aria-label="Search books"
             />
           </div>
+          <button
+            className="btn btn-quiet px-3"
+            onClick={() => setAddingWithAI(true)}
+            aria-label="Add books with AI"
+          >
+            <Sparkles size={18} />
+          </button>
           <button className="btn btn-ink px-3" onClick={() => setAdding(true)} aria-label="Add book">
             <BookPlus size={18} />
           </button>
@@ -112,9 +121,14 @@ export default function BooksView() {
                 : "Add the books you sell once. After that, an invoice is a few taps."
             }
             action={
-              <button className="btn btn-ink" onClick={() => setAdding(true)}>
-                <BookPlus size={17} /> Add a book
-              </button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <button className="btn btn-ink" onClick={() => setAdding(true)}>
+                  <BookPlus size={17} /> Add a book
+                </button>
+                <button className="btn btn-quiet" onClick={() => setAddingWithAI(true)}>
+                  <Sparkles size={17} /> Add with AI
+                </button>
+              </div>
             }
           />
         </div>
@@ -130,6 +144,16 @@ export default function BooksView() {
           }}
         />
       </Sheet>
+
+      {addingWithAI && (
+        <BookExtractSheet
+          onClose={() => setAddingWithAI(false)}
+          onAdded={() => {
+            setAddingWithAI(false);
+            load();
+          }}
+        />
+      )}
 
       <Sheet open={!!editing} title="Edit book" onClose={() => setEditing(null)}>
         {editing && (

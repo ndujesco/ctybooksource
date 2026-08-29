@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import mammoth from "mammoth";
 import { books as booksCollection, customers as customersCollection } from "@/lib/mongodb";
 import { toBook, toCustomer } from "@/lib/serialize";
 import { matchBook } from "@/lib/match";
 import { escapeRegex } from "@/lib/serialize";
+import { readSources, SourceError, type Source } from "@/lib/aiSource";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -85,19 +85,6 @@ const SCHEMA = {
   required: ["customerName", "customerPhone", "customerAddress", "items"],
 };
 
-type ImageMedia = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
-type Source =
-  | { kind: "text"; text: string }
-  | { kind: "pdf"; base64: string }
-  | { kind: "image"; base64: string; media: ImageMedia };
-
-function imageMedia(name: string, type: string): ImageMedia {
-  if (type === "image/png" || name.endsWith(".png")) return "image/png";
-  if (type === "image/webp" || name.endsWith(".webp")) return "image/webp";
-  if (type === "image/gif" || name.endsWith(".gif")) return "image/gif";
-  return "image/jpeg";
-}
-
 /**
  * Fold any number of photos, PDFs and pasted text into one user message. The
  * API takes multiple image and document blocks natively, so several photos of
@@ -156,54 +143,13 @@ export async function POST(req: Request) {
     );
   }
 
-  const sources: Source[] = [];
+  let sources: Source[];
   try {
-    const contentType = req.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      const body = await req.json();
-      const text = String(body?.text ?? "").trim();
-      if (text) sources.push({ kind: "text", text });
-    } else {
-      const form = await req.formData();
-      const files = form.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
-      const text = form.get("text");
-
-      let total = 0;
-      for (const file of files) {
-        total += file.size;
-        if (total > MAX_BYTES) {
-          return NextResponse.json(
-            { error: "Those files are too large together (max 30MB)." },
-            { status: 413 }
-          );
-        }
-        const name = file.name.toLowerCase();
-        const buf = Buffer.from(await file.arrayBuffer());
-        const isImage = file.type.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/.test(name);
-
-        if (name.endsWith(".pdf") || file.type === "application/pdf") {
-          sources.push({ kind: "pdf", base64: buf.toString("base64") });
-        } else if (isImage) {
-          sources.push({
-            kind: "image",
-            base64: buf.toString("base64"),
-            media: imageMedia(name, file.type),
-          });
-        } else if (name.endsWith(".docx")) {
-          const { value } = await mammoth.extractRawText({ buffer: buf });
-          if (value.trim()) sources.push({ kind: "text", text: value.trim() });
-        } else {
-          const plain = buf.toString("utf-8").trim();
-          if (plain) sources.push({ kind: "text", text: plain });
-        }
-      }
-
-      if (typeof text === "string" && text.trim()) {
-        sources.push({ kind: "text", text: text.trim() });
-      }
-    }
-  } catch {
-    return NextResponse.json({ error: "Couldn't read that input." }, { status: 400 });
+    sources = await readSources(req, MAX_BYTES);
+  } catch (err) {
+    const status = err instanceof SourceError ? err.status : 400;
+    const message = err instanceof SourceError ? err.message : "Couldn't read that input.";
+    return NextResponse.json({ error: message }, { status });
   }
 
   if (!sources.length) {
