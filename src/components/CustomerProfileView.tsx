@@ -3,19 +3,24 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MessageCircle, Pencil, Phone, Plus } from "lucide-react";
+import { MessageCircle, Pencil, Phone, Plus, X } from "lucide-react";
 import Sheet from "@/components/Sheet";
 import { RankBars } from "@/components/charts";
 import {
   archiveCustomer,
+  clearSchoolPrice,
   createInvoice,
   deleteCustomer,
   getCustomerProfile,
+  listSchoolPrices,
+  setSchoolPrice,
   updateCustomer,
   type CustomerProfile,
+  type SchoolPrice,
 } from "@/lib/client";
 import { formatMoney, formatMoneyShort, invoiceNumberLabel } from "@/lib/types";
 import { formatDate, relativeDays, today } from "@/lib/datetime";
+import { spineColor } from "@/lib/spine";
 import {
   Empty,
   ErrorNote,
@@ -24,6 +29,7 @@ import {
   Money,
   PageHeader,
   Section,
+  Spine,
   Stat,
   StatusPill,
 } from "@/components/ui";
@@ -33,7 +39,7 @@ export default function CustomerProfileView({ id }: { id: string }) {
   const [data, setData] = useState<CustomerProfile | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
-  const [tab, setTab] = useState<"history" | "debts" | "books" | "payments">("history");
+  const [tab, setTab] = useState<"history" | "debts" | "books" | "prices" | "payments">("history");
 
   const load = useCallback(() => {
     getCustomerProfile(id)
@@ -158,6 +164,7 @@ export default function CustomerProfileView({ id }: { id: string }) {
             ["history", `Invoices ${data.history.length}`],
             ["debts", `Owing ${data.debts.length}`],
             ["books", "Books"],
+            ["prices", "Prices"],
             ["payments", "Payments"],
           ] as const).map(([key, label]) => (
             <button
@@ -259,6 +266,8 @@ export default function CustomerProfileView({ id }: { id: string }) {
           </div>
         )}
 
+        {tab === "prices" && <SchoolPrices customerId={id} />}
+
         {tab === "payments" &&
           (data.payments.length === 0 ? (
             <Empty title="No payments recorded" hint="Payments show up here as you record them on invoices." />
@@ -291,6 +300,144 @@ export default function CustomerProfileView({ id }: { id: string }) {
         />
       </Sheet>
     </main>
+  );
+}
+
+/* -- What this school pays ------------------------------------------------
+   A book has one general price and, where one has been agreed with a school,
+   a price of its own. This is the whole list of what has been agreed here, in
+   one place — so a term's prices can be checked, changed or dropped without
+   opening an invoice to find them.
+   ---------------------------------------------------------------------- */
+
+function SchoolPrices({ customerId }: { customerId: string }) {
+  const [rows, setRows] = useState<SchoolPrice[] | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+
+  const load = useCallback(() => {
+    listSchoolPrices(customerId)
+      .then((r) => {
+        setRows(r);
+        setError("");
+      })
+      .catch((e: Error) => setError(e.message));
+  }, [customerId]);
+
+  useEffect(load, [load]);
+
+  async function change(bookId: string, price: number) {
+    setBusy(bookId);
+    try {
+      await setSchoolPrice(customerId, bookId, price);
+      setRows((prev) =>
+        prev?.map((r) => (r.bookId === bookId ? { ...r, sellingPrice: price } : r)) ?? null
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function drop(bookId: string) {
+    setBusy(bookId);
+    try {
+      await clearSchoolPrice(customerId, bookId);
+      setRows((prev) => prev?.filter((r) => r.bookId !== bookId) ?? null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  if (error) return <ErrorNote>{error}</ErrorNote>;
+  if (!rows) return <Loading label="Reading their prices" />;
+  if (!rows.length) {
+    return (
+      <Empty
+        title="No prices agreed with this school"
+        hint="They pay the general price for everything. Change a price on one of their invoices and you'll be offered to keep it for them — it'll appear here."
+      />
+    );
+  }
+
+  return (
+    <>
+      <p className="mb-2 text-sm text-[var(--ink-2)]">
+        What this school pays, where it differs from the general price. These are used
+        automatically on their invoices, and on an order read in by AI.
+      </p>
+      <ul className="card ruled overflow-hidden">
+        {rows.map((r) => {
+          const general = r.book?.sellingPrice ?? 0;
+          return (
+            <li key={r.bookId} className="flex items-center gap-2.5 px-3.5 py-2.5">
+              <Spine color={spineColor(r.book?.publisher || "")} title={r.book?.publisher} />
+              <div className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">
+                  {r.book?.name ?? "A book that is no longer on the shelf"}
+                </span>
+                <span className="block text-xs text-[var(--ink-3)]">
+                  {general > 0 ? `General price ${formatMoney(general)}` : "No general price set"}
+                </span>
+              </div>
+              <PriceField
+                value={r.sellingPrice}
+                busy={busy === r.bookId}
+                onCommit={(v) => void change(r.bookId, v)}
+              />
+              <button
+                type="button"
+                aria-label={`Drop the agreed price for ${r.book?.name ?? "this book"}`}
+                className="shrink-0 rounded-lg p-1 text-[var(--ink-3)] hover:bg-[var(--sunken)] hover:text-[var(--debit)]"
+                disabled={busy === r.bookId}
+                onClick={() => void drop(r.bookId)}
+              >
+                <X size={16} />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
+/** A price that saves when you leave the field, not on every keystroke. */
+function PriceField({
+  value,
+  busy,
+  onCommit,
+}: {
+  value: number;
+  busy: boolean;
+  onCommit: (v: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  const [editing, setEditing] = useState(false);
+
+  return (
+    <input
+      className="field figure w-24 shrink-0 py-1 text-right"
+      type="number"
+      inputMode="decimal"
+      min={0}
+      disabled={busy}
+      value={editing ? text : String(value)}
+      aria-label="Price for this school"
+      onFocus={() => {
+        setText(String(value));
+        setEditing(true);
+      }}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        setEditing(false);
+        const next = Math.max(0, Number(text) || 0);
+        if (next !== value) onCommit(next);
+      }}
+    />
   );
 }
 

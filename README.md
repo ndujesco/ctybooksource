@@ -38,6 +38,7 @@ later never rewrites history.
 | `invoices` | the ledger — lines, payments, totals, status |
 | `customers` | schools and bookshops |
 | `books` | the catalogue: name, publisher, cost & selling price (subject kept for the by-subject report) |
+| `bookPrices` | one row per (school, book) that has a price of its own |
 | `counters` | one doc, `invoiceNumber`, incremented atomically so numbers never collide |
 
 ### Invoice lines snapshot their book
@@ -51,6 +52,109 @@ The one deliberate exception: editing a customer pushes the corrected name and
 contact details onto their existing invoices, because editing a customer is a
 correction ("ABC Schl" → "ABC School") and searching invoices by school name
 should find the old ones under the new spelling.
+
+## Two prices for one book: general, and this school's
+
+A book carries one **general** price. Any school that has negotiated its own
+rate gets a row in `bookPrices`, and **that price wins** whenever that school is
+being invoiced — on a hand-written invoice, and on an order read in by the AI.
+
+The rule that makes it safe to edit prices on an invoice at all:
+
+> **Editing a price on an invoice changes that invoice and nothing else.**
+
+When the typed price departs from the standing one, the line offers — and only
+offers — two ways to remember it: *always this price for this school*, or
+*change the general price*. Ignore both and the edit stays on this invoice. A
+school's whole price list is on their record under **Prices**, where it can be
+changed or dropped.
+
+`POST /api/extract` reads the school first and the books second, precisely so
+the suggestions come back priced at that school's rates. A price written on the
+order itself is the school's own instruction and is never overwritten by a
+stored one.
+
+## Balance brought forward
+
+A new invoice can show what the school still owes on their earlier ones.
+**It is a switch, never automatic** — `carryForward` on the invoice — and it only
+appears when there is something to carry.
+
+`broughtForward` is recomputed server-side on every save from the school's other
+open invoices, so paying one of those off drops the figure here by itself; it is
+never a stale snapshot, and never taken from the client.
+
+The arrears are **shown beneath this invoice's own figures, never folded into
+them**:
+
+```
+Grand total          ₦412,500
+Amount paid          ₦200,000
+Balance on this inv. ₦212,500
+──────────────────────────────
+Brought forward      ₦ 86,000
+TOTAL DUE            ₦298,500
+```
+
+That is deliberate. The debt belongs to the invoices that raised it; adding it
+into this invoice's `totals` or `balance` would count the same money twice in
+every report, and leave two invoices each claiming the same ₦86,000.
+
+## Joining duplicate books
+
+The shelf has the same title on it more than once — `Bond Non-Verbal 6-7` beside
+`Bond Non-Verbal. 6-7`, `Fun Science Nur. 1` beside `Fun Science Nursery 1`,
+`NELSON SPELLING WORKBOOK 1A` beside `Nelson Spelling Workbook 1A`. While they
+sit apart, each shows half the copies actually sold.
+
+`src/lib/booknames.ts` reduces a written title to what it actually names, so the
+spellings land on one key. It is strict about the one thing that must not be
+smudged: **level numbers**. `Book 5` never meets `Book 6`, and `1A` never meets
+`1B`.
+
+**The sales move before anything is deleted.** `POST /api/books/merge` repoints
+every invoice line onto the survivor and relabels it with the survivor's name
+and publisher; only then is the duplicate record removed. Deliberately left
+alone on those lines: `unitPrice` and `costPrice` — they are the prices the sale
+actually happened at, and rewriting them would falsify profit on invoices
+settled months ago. School prices come across too, unless the survivor already
+has one for that school.
+
+Detection only ever *proposes*; the survivor it suggests is the record that
+knows the most (a publisher first — the hand-typed duplicates are the ones
+missing it). A book filed under a different name altogether (`Mental Arithmetic
+3` belonging with `S/Sims Mental Arithmetic 3`) can't be detected, so there is a
+plain search-and-pick beside it.
+
+## The grand invoice
+
+`/reports/grand` — not one school's invoice, but every copy of every book that
+left the building in a period, on one sheet. Each title opens to show the
+schools that took it; the whole sheet can be read by school instead, or narrowed
+to one. It prints.
+
+## Writing an invoice on a desktop screen
+
+Above 1100px the editor opens out and the finished document sits beside the
+form, moving as you type. It is the *same component* that prints and that the
+share sheet exports, so there is no second version of the truth to drift. The
+phone layout is untouched.
+
+## Autosave
+
+`src/lib/use-autosave.ts`. Four things go wrong with a naive debounce, and the
+hook exists for all four:
+
+- An edit made **while a save is in flight** is held and sent the moment that
+  flight lands — the newest state always wins.
+- **Only one request is ever in the air**, so the server applies changes in the
+  order they were typed.
+- A failed save **retries on a backoff, retries at once when the network comes
+  back**, and says plainly that it hasn't saved — the localStorage mirror holds
+  the work meanwhile. `saveInvoice` throws rather than returning `null`, because
+  a save that fails silently is how a typed invoice goes missing.
+- Leaving the page, or unmounting mid-debounce, flushes with `keepalive` so the
+  request outlives the page.
 
 ### Money is computed server-side, never sent by the client
 

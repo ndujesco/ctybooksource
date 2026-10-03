@@ -35,6 +35,34 @@ export type Book = {
 };
 
 /* ---------------------------------------------------------------------------
+   School prices
+
+   A book has one general price (`sellingPrice` above) and, for any school that
+   has negotiated one, a price of its own. The school price always wins when
+   that school is being invoiced; nothing about editing one touches the other.
+   Kept in its own collection rather than on the book, so a school's whole price
+   list is one indexed query and a book with no special prices costs nothing.
+   ------------------------------------------------------------------------ */
+
+export type BookPriceDoc = {
+  _id?: ObjectId;
+  customerId: string;
+  bookId: string;
+  sellingPrice: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type BookPrice = {
+  id: string;
+  customerId: string;
+  bookId: string;
+  sellingPrice: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/* ---------------------------------------------------------------------------
    Customers (schools, bookshops)
    ------------------------------------------------------------------------ */
 
@@ -123,6 +151,13 @@ export type InvoiceDoc = {
   payments: Payment[];
   notes: string;
   status: InvoiceStatus;
+  // What the school already owed on their *other* invoices when this one was
+  // written. Recomputed server-side on every write while `carryForward` is on,
+  // so the printed copy and the screen can never disagree. Deliberately NOT
+  // part of `totals`: the arrears belong to the invoices that raised them, and
+  // folding them in here would count the same debt twice in every report.
+  carryForward: boolean;
+  broughtForward: number;
   // Derived and recomputed server-side on every write. Stored so that list
   // filtering and the analytics pipelines stay simple and fast.
   totals: Totals;
@@ -189,6 +224,16 @@ export function derivePayStatus(total: number, paid: number): PayStatus {
   // Tolerate sub-kobo float noise so "paid in full" actually reads as paid.
   if (paid + 0.005 >= total) return "paid";
   return "partial";
+}
+
+/**
+ * Everything the school owes right now: this invoice's own balance plus any
+ * arrears carried forward onto it. The figure the customer actually pays.
+ */
+export function totalDue(
+  inv: Pick<Invoice, "balance" | "broughtForward" | "carryForward">
+): number {
+  return round2(inv.balance + (inv.carryForward ? inv.broughtForward || 0 : 0));
 }
 
 export function round2(n: number): number {

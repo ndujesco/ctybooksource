@@ -365,3 +365,61 @@ input[type="number"] {
 .print-only {
   display: none;
 }
+
+/* ============================================================================
+   Writing an invoice on a desktop screen
+
+   On a phone the editor is the whole page and the finished document is one tap
+   away. On a wide screen there is room for both at once, so the live copy sits
+   beside the form and moves as he types — the same component that prints and
+   that the share sheet exports, so there is no second version of the truth.
+
+   Unlayered on purpose: these rules have to beat Tailwind's `hidden` utility,
+   and unlayered styles outrank anything in a cascade layer.
+   ========================================================================= */
+
+.editor-preview,
+.editor-preview-toggle {
+  display: none;
+}
+
+@media (min-width: 1100px) {
+  /* The sheet is a phone-width page everywhere else; here it opens out to hold
+     the second column. Scoped by :has so no other screen is affected. */
+  .sheet:has(.editor-wide) {
+    max-width: 1200px;
+  }
+
+  .editor-wide .editor-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+    align-items: start;
+  }
+
+  .editor-preview {
+    display: block;
+    position: sticky;
+    top: 0;
+    /* Full height so the rule between form and preview runs the length of the
+       page, rather than stopping where the preview's content happens to end. */
+    height: 100dvh;
+    overflow-y: auto;
+    border-left: 1px solid var(--rule);
+    background: var(--sunken);
+  }
+
+  .editor-preview-inner {
+    padding: 0.875rem 1rem 2rem;
+  }
+
+  .editor-preview-toggle {
+    display: inline-flex;
+  }
+}
+
+@media print {
+  /* The preview is a copy of what is already being printed. */
+  .editor-preview {
+    display: none !important;
+  }
+}

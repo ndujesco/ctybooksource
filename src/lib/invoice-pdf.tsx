@@ -14,6 +14,7 @@ import {
   lineName,
   lineTotal,
   PAY_STATUS_LABEL,
+  totalDue,
   type Invoice,
 } from "@/lib/types";
 import { formatDate } from "@/lib/datetime";
@@ -91,6 +92,7 @@ const s = StyleSheet.create({
 
 function InvoicePdf({ invoice, business, toggles }: { invoice: Invoice; business: Business; toggles: HeaderToggles }) {
   const { totals } = invoice;
+  const carried = invoice.carryForward ? invoice.broughtForward || 0 : 0;
   const contact = [
     toggles.phone ? business.phone : "",
     toggles.email ? business.email : "",
@@ -177,11 +179,30 @@ function InvoicePdf({ invoice, business, toggles }: { invoice: Invoice; business
             <Text style={[s.figBold, { color: CREDIT }]}>{formatMoney(invoice.amountPaid)}</Text>
           </View>
           <View style={s.totalRow}>
-            <Text style={{ color: DIM }}>Balance</Text>
+            <Text style={{ color: DIM }}>
+              {carried > 0 ? "Balance on this invoice" : "Balance"}
+            </Text>
             <Text style={[s.figBold, { color: invoice.balance > 0.01 ? DEBIT : CREDIT }]}>
               {formatMoney(Math.max(0, invoice.balance))}
             </Text>
           </View>
+
+          {/* What the school already owed on their other invoices. Shown, never
+              added into this invoice's own figures. */}
+          {carried > 0 && (
+            <>
+              <View style={[s.totalRow, { marginTop: 6, borderTopWidth: 1, borderTopColor: RULE, paddingTop: 5 }]}>
+                <Text style={{ color: DIM }}>Balance brought forward</Text>
+                <Text style={s.figBold}>{formatMoney(carried)}</Text>
+              </View>
+              <View style={s.grand}>
+                <Text style={{ fontWeight: 600, fontSize: 11 }}>Total due</Text>
+                <Text style={[s.figBold, { fontSize: 14, color: DEBIT }]}>
+                  {formatMoney(Math.max(0, totalDue(invoice)))}
+                </Text>
+              </View>
+            </>
+          )}
         </View>
 
         {invoice.payments.length > 0 && (

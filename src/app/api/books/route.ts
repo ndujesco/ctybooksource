@@ -1,16 +1,31 @@
 import { NextResponse } from "next/server";
+import { ObjectId } from "mongodb";
 import { books, ensureIndexes } from "@/lib/mongodb";
 import { toBook, str, clampNum, escapeRegex } from "@/lib/serialize";
 import type { BookDoc } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/books?q=&archived=1 — catalogue, alphabetical by short name.
+// GET /api/books?q=&archived=1&ids=a,b,c — catalogue, alphabetical by short name.
 export async function GET(req: Request) {
   await ensureIndexes();
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") || "").trim();
   const includeArchived = searchParams.get("archived") === "1";
+  // `ids` fetches an exact set — how the invoice editor learns the *current*
+  // general price of each book already on the invoice, to tell an edited price
+  // apart from the standing one.
+  const ids = (searchParams.get("ids") || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => ObjectId.isValid(s))
+    .slice(0, 500);
+
+  if (ids.length) {
+    const col = await books();
+    const docs = await col.find({ _id: { $in: ids.map((s) => new ObjectId(s)) } }).toArray();
+    return NextResponse.json(docs.map(toBook));
+  }
 
   const filter: Record<string, unknown> = {};
   if (!includeArchived) filter.archived = { $ne: true };

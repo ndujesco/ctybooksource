@@ -1,5 +1,5 @@
 import { MongoClient, type Db, type Collection } from "mongodb";
-import type { BookDoc, CustomerDoc, InvoiceDoc } from "@/lib/types";
+import type { BookDoc, BookPriceDoc, CustomerDoc, InvoiceDoc } from "@/lib/types";
 
 const uri = process.env.MONGODB_URI;
 const dbName = process.env.MONGODB_DB || "bookDB";
@@ -42,6 +42,11 @@ export async function books(): Promise<Collection<BookDoc>> {
   return (await getDb()).collection<BookDoc>("books");
 }
 
+/** Per-school prices. One doc per (school, book) pair that has its own price. */
+export async function bookPrices(): Promise<Collection<BookPriceDoc>> {
+  return (await getDb()).collection<BookPriceDoc>("bookPrices");
+}
+
 type CounterDoc = { _id: string; seq: number };
 
 /**
@@ -73,6 +78,10 @@ export function ensureIndexes(): Promise<void> {
         db.collection("invoices").createIndex({ customerName: 1 }),
         db.collection("customers").createIndex({ name: 1 }),
         db.collection("books").createIndex({ name: 1 }),
+        // One price per school per book — the unique index is what makes the
+        // upsert in PUT /api/customers/:id/prices safe against a double tap.
+        db.collection("bookPrices").createIndex({ customerId: 1, bookId: 1 }, { unique: true }),
+        db.collection("bookPrices").createIndex({ bookId: 1 }),
       ]);
     })().catch(() => {
       // Index creation is best-effort — never block a request on it.

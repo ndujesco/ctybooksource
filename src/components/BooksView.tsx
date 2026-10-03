@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BookPlus, Pencil, Search, Sparkles } from "lucide-react";
+import { BookPlus, Combine, Pencil, Search, Sparkles } from "lucide-react";
 import Sheet from "@/components/Sheet";
 import { NewBookForm } from "@/components/BookPicker";
 import BookExtractSheet from "@/components/BookExtractSheet";
-import { archiveBook, deleteBook, listBooks, updateBook } from "@/lib/client";
+import MergeBooksSheet from "@/components/MergeBooksSheet";
+import { archiveBook, deleteBook, listBooks, listDuplicates, updateBook } from "@/lib/client";
 import { type Book } from "@/lib/types";
 import { spineColor } from "@/lib/spine";
 import { Empty, ErrorNote, Labelled, Loading, PageHeader, Spine } from "@/components/ui";
@@ -17,6 +18,8 @@ export default function BooksView() {
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
   const [addingWithAI, setAddingWithAI] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [dupeCount, setDupeCount] = useState(0);
   const [editing, setEditing] = useState<Book | null>(null);
 
   const load = useCallback(() => {
@@ -30,6 +33,16 @@ export default function BooksView() {
     const t = setTimeout(load, q ? 220 : 0);
     return () => clearTimeout(t);
   }, [load, q]);
+
+  // How many titles are on the shelf twice. Only a count — the work of joining
+  // them is always his, never automatic.
+  const countDuplicates = useCallback(() => {
+    listDuplicates()
+      .then((g) => setDupeCount(g.length))
+      .catch(() => setDupeCount(0));
+  }, []);
+
+  useEffect(countDuplicates, [countDuplicates]);
 
   const visible = showArchived ? books : (books || []).filter((b) => !b.archived);
 
@@ -61,6 +74,26 @@ export default function BooksView() {
             aria-label="Add books with AI"
           >
             <Sparkles size={18} />
+          </button>
+          <button
+            className="btn btn-quiet relative px-3"
+            onClick={() => setMerging(true)}
+            aria-label={
+              dupeCount
+                ? `Join duplicate books — ${dupeCount} found`
+                : "Join duplicate books"
+            }
+            title="Join duplicate books"
+          >
+            <Combine size={18} />
+            {dupeCount > 0 && (
+              <span
+                className="figure absolute -top-1.5 -right-1.5 rounded-full px-1.5 text-[0.625rem] font-semibold leading-[1.1rem]"
+                style={{ background: "var(--gold)", color: "#fff" }}
+              >
+                {dupeCount}
+              </span>
+            )}
           </button>
           <button className="btn btn-ink px-3" onClick={() => setAdding(true)} aria-label="Add book">
             <BookPlus size={18} />
@@ -151,6 +184,19 @@ export default function BooksView() {
           onAdded={() => {
             setAddingWithAI(false);
             load();
+          }}
+        />
+      )}
+
+      {merging && (
+        <MergeBooksSheet
+          onClose={() => {
+            setMerging(false);
+            countDuplicates();
+          }}
+          onMerged={() => {
+            load();
+            countDuplicates();
           }}
         />
       )}

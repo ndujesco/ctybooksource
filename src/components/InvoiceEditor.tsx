@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -8,7 +8,10 @@ import {
   BookPlus,
   Check,
   ChevronLeft,
+  Eye,
+  EyeOff,
   Plus,
+  RefreshCw,
   Share2,
   Trash2,
   X,
@@ -17,16 +20,22 @@ import BookAutocomplete from "@/components/BookAutocomplete";
 import CustomerPicker from "@/components/CustomerPicker";
 import ShareSheet from "@/components/ShareSheet";
 import InvoiceDocument from "@/components/InvoiceDocument";
+import ScaledPreview from "@/components/ScaledPreview";
 import { ErrorNote, Labelled, Loading, Money, Spine, StatusPill } from "@/components/ui";
 import {
   clearLocal,
   createBook,
+  getArrears,
+  getBooks,
   getInvoice,
+  listSchoolPrices,
   loadLocal,
   saveInvoice,
   saveLocal,
+  setSchoolPrice,
   trashInvoice,
   updateBook,
+  type Arrears,
   type InvoicePatch,
 } from "@/lib/client";
 import {
@@ -46,9 +55,8 @@ import {
 } from "@/lib/types";
 import { formatDate, today } from "@/lib/datetime";
 import { spineColor } from "@/lib/spine";
+import { useAutosave, saveLabel } from "@/lib/use-autosave";
 import { useBusiness, useHeaderToggles } from "@/lib/use-settings";
-
-const SAVE_DEBOUNCE = 700;
 
 type Editable = {
   customerId: string | null;
@@ -60,7 +68,20 @@ type Editable = {
   discountPercent: number;
   payments: Payment[];
   notes: string;
+  carryForward: boolean;
 };
+
+const PREVIEW_PREF = "pb.previewOnDesktop";
+
+const EMPTY_PRICES: Map<string, number> = new Map();
+
+function readPreviewPref(): boolean {
+  try {
+    return localStorage.getItem(PREVIEW_PREF) !== "0";
+  } catch {
+    return true;
+  }
+}
 
 export default function InvoiceEditor({ id }: { id: string }) {
   const router = useRouter();
@@ -68,21 +89,58 @@ export default function InvoiceEditor({ id }: { id: string }) {
   const [form, setForm] = useState<Editable | null>(null);
   const [missing, setMissing] = useState(false);
   const [error, setError] = useState("");
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
 
   const [pickCustomer, setPickCustomer] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [addingPayment, setAddingPayment] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Read once, at first render. The editor renders nothing but a spinner until
+  // the invoice arrives, so this never reaches the server-rendered HTML.
+  const [showPreview, setShowPreview] = useState(readPreviewPref);
 
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latest = useRef<Editable | null>(null);
+  // What this school pays, where it differs from the general price, and what
+  // the general price is right now — the two numbers an edited price is judged
+  // against before anything is offered to be saved. Both are stamped with the
+  // school they belong to, so a half-loaded price list can never be read as
+  // belonging to a school it isn't for.
+  const [prices, setPrices] = useState<{ customerId: string; map: Map<string, number> } | null>(
+    null
+  );
+  const [owing, setOwing] = useState<{ customerId: string; arrears: Arrears } | null>(null);
+  const [shelf, setShelf] = useState<Map<string, Book>>(new Map());
 
-  // The letterhead for the print-only copy of the document.
+  // The letterhead for the preview and the print-only copy.
   const business = useBusiness();
   const toggles = useHeaderToggles();
 
-  /* -- Load ------------------------------------------------------------- */
+  /* -- Save --------------------------------------------------------------
+     One request in the air at a time, newest state always wins, failures retry
+     and say so. See src/lib/use-autosave.ts.
+     -------------------------------------------------------------------- */
+
+  const autosave = useAutosave<Editable>({
+    save: async (data, { keepalive }) => {
+      const saved = await saveInvoice(id, data as InvoicePatch, { keepalive });
+      setInvoice(saved);
+    },
+    mirror: (data) => saveLocal(id, data),
+    clearMirror: () => clearLocal(id),
+  });
+  const { queue, flush } = autosave;
+
+  const update = useCallback(
+    (patch: Partial<Editable>) => {
+      setForm((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, ...patch };
+        queue(next);
+        return next;
+      });
+    },
+    [queue]
+  );
+
+  /* -- Load -------------------------------------------------------------- */
 
   useEffect(() => {
     getInvoice(id)
@@ -102,6 +160,7 @@ export default function InvoiceEditor({ id }: { id: string }) {
           discountPercent: inv.discountPercent,
           payments: inv.payments,
           notes: inv.notes,
+          carryForward: inv.carryForward,
         };
         // A local mirror newer than the server copy means the last debounced
         // save never landed — prefer whatever it holds.
@@ -112,65 +171,48 @@ export default function InvoiceEditor({ id }: { id: string }) {
       .catch((e: Error) => setError(e.message));
   }, [id]);
 
-  /* -- Save ------------------------------------------------------------- */
-
-  const flush = useCallback(
-    async (data: Editable, keepalive = false) => {
-      setSaveState("saving");
-      const patch: InvoicePatch = { ...data };
-      const saved = await saveInvoice(id, patch, { keepalive });
-      if (saved) {
-        setInvoice(saved);
-        clearLocal(id);
-        setSaveState("saved");
-      } else {
-        setSaveState("idle");
-      }
-    },
-    [id]
-  );
-
-  const queue = useCallback(
-    (next: Editable) => {
-      latest.current = next;
-      saveLocal(id, next);
-      setSaveState("saving");
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => {
-        void flush(next).catch(() => setSaveState("idle"));
-      }, SAVE_DEBOUNCE);
-    },
-    [flush, id]
-  );
-
-  const update = useCallback(
-    (patch: Partial<Editable>) => {
-      setForm((prev) => {
-        if (!prev) return prev;
-        const next = { ...prev, ...patch };
-        queue(next);
-        return next;
-      });
-    },
-    [queue]
-  );
-
-  // Leaving the page (backgrounding the tab, closing it) flushes immediately.
+  // The general price of every book on the invoice, as it stands today.
+  const lineBookIds = form?.lines.map((l) => l.bookId).filter(Boolean).join(",") ?? "";
   useEffect(() => {
-    const onLeave = () => {
-      if (!latest.current) return;
-      if (timer.current) clearTimeout(timer.current);
-      void flush(latest.current, true);
-    };
-    window.addEventListener("pagehide", onLeave);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") onLeave();
-    });
+    const ids = lineBookIds.split(",").filter(Boolean);
+    if (!ids.length) return;
+    getBooks(ids)
+      .then((books) =>
+        setShelf((prev) => {
+          const next = new Map(prev);
+          for (const b of books) next.set(b.id, b);
+          return next;
+        })
+      )
+      .catch(() => {});
+  }, [lineBookIds]);
+
+  // This school's own prices, and what they still owe elsewhere. Both follow
+  // the school, so both are reloaded whenever it changes.
+  const customerId = form?.customerId ?? null;
+  useEffect(() => {
+    if (!customerId) return;
+    let live = true;
+    listSchoolPrices(customerId)
+      .then((rows) => {
+        if (live) {
+          setPrices({ customerId, map: new Map(rows.map((r) => [r.bookId, r.sellingPrice])) });
+        }
+      })
+      .catch(() => {});
+    getArrears(customerId, id)
+      .then((arrears) => live && setOwing({ customerId, arrears }))
+      .catch(() => {});
     return () => {
-      window.removeEventListener("pagehide", onLeave);
-      if (timer.current) clearTimeout(timer.current);
+      live = false;
     };
-  }, [flush]);
+  }, [customerId, id]);
+
+  // Only ever this school's figures — anything still loading reads as empty
+  // rather than as the last school's.
+  const schoolPrices =
+    customerId && prices?.customerId === customerId ? prices.map : EMPTY_PRICES;
+  const arrears = customerId && owing?.customerId === customerId ? owing.arrears : null;
 
   /* -- Derived (recomputed locally so the screen never lags the keystroke) */
 
@@ -180,11 +222,17 @@ export default function InvoiceEditor({ id }: { id: string }) {
   );
   const paid = useMemo(() => (form ? sumPayments(form.payments) : 0), [form]);
   const balance = totals ? round2(totals.total - paid) : 0;
+  // Live, so ticking the box shows the figure at once. The server recomputes
+  // exactly this on every save, so the two never drift apart.
+  const broughtForward =
+    form?.carryForward ? (arrears?.amount ?? invoice?.broughtForward ?? 0) : 0;
+  const due = round2(balance + broughtForward);
 
   /* -- Line actions ------------------------------------------------------ */
 
   function addBook(b: Book) {
     if (!form) return;
+    setShelf((prev) => new Map(prev).set(b.id, b));
     const line: Line = {
       id: `l${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
       bookId: b.id,
@@ -192,7 +240,9 @@ export default function InvoiceEditor({ id }: { id: string }) {
       publisher: b.publisher,
       category: b.category,
       qty: 1,
-      unitPrice: b.sellingPrice,
+      // This school's price wins over the general one. That is the whole point
+      // of a school price: the rate agreed with them is the rate they get.
+      unitPrice: schoolPrices.get(b.id) ?? b.sellingPrice,
       costPrice: b.costPrice,
     };
     update({ lines: [...form.lines, line] });
@@ -210,25 +260,47 @@ export default function InvoiceEditor({ id }: { id: string }) {
 
   // Keep the shelf in step with what's on the invoice. A line with no book
   // behind it (typed by hand or brought in by import) gets one created and
-  // linked; a line already linked pushes its edited name/publisher/price back
-  // to that book, so renaming here reflects on the shelf too.
+  // linked; a line already linked pushes its edited name/publisher back to that
+  // book. Note it does NOT push the price: an invoice price is this sale's
+  // price, and changing the shelf's price is offered separately, by name.
   async function syncLineToShelf(lineId: string) {
     if (!form) return;
     const line = form.lines.find((l) => l.id === lineId);
     const name = line?.name.trim();
     if (!line || !name) return;
-    const data = {
-      name,
-      publisher: line.publisher || "",
-      costPrice: line.costPrice || 0,
-      sellingPrice: line.unitPrice || 0,
-    };
     if (line.bookId) {
-      await updateBook(line.bookId, data);
+      const book = await updateBook(line.bookId, {
+        name,
+        publisher: line.publisher || "",
+        costPrice: line.costPrice || 0,
+      });
+      setShelf((prev) => new Map(prev).set(book.id, book));
     } else {
-      const book = await createBook(data);
+      const book = await createBook({
+        name,
+        publisher: line.publisher || "",
+        costPrice: line.costPrice || 0,
+        sellingPrice: line.unitPrice || 0,
+      });
+      setShelf((prev) => new Map(prev).set(book.id, book));
       patchLine(lineId, { bookId: book.id });
     }
+  }
+
+  /** Remember this price for this school only. The general price is untouched. */
+  async function saveAsSchoolPrice(bookId: string, price: number) {
+    if (!customerId) return;
+    await setSchoolPrice(customerId, bookId, price);
+    setPrices((prev) => ({
+      customerId,
+      map: new Map(prev?.customerId === customerId ? prev.map : []).set(bookId, price),
+    }));
+  }
+
+  /** Change the price everyone pays. Only ever on an explicit tap. */
+  async function saveAsGeneralPrice(bookId: string, price: number) {
+    const book = await updateBook(bookId, { sellingPrice: price });
+    setShelf((prev) => new Map(prev).set(book.id, book));
   }
 
   /* -- Invoice actions --------------------------------------------------- */
@@ -236,13 +308,12 @@ export default function InvoiceEditor({ id }: { id: string }) {
   // The PDF is rendered server-side from the saved document, so anything still
   // sitting in the debounce has to land before the sheet opens.
   async function openShare() {
-    if (timer.current) clearTimeout(timer.current);
-    if (latest.current) await flush(latest.current).catch(() => {});
+    await flush().catch(() => {});
     setSharing(true);
   }
 
   async function setStatus(status: "open" | "cancelled") {
-    const saved = await saveInvoice(id, { status });
+    const saved = await saveInvoice(id, { status }).catch(() => null);
     if (saved) setInvoice(saved);
   }
 
@@ -250,6 +321,15 @@ export default function InvoiceEditor({ id }: { id: string }) {
     await trashInvoice(id);
     clearLocal(id);
     router.push("/invoices");
+  }
+
+  function togglePreview() {
+    setShowPreview((on) => {
+      try {
+        localStorage.setItem(PREVIEW_PREF, on ? "0" : "1");
+      } catch {}
+      return !on;
+    });
   }
 
   /* -- Render ------------------------------------------------------------ */
@@ -281,6 +361,7 @@ export default function InvoiceEditor({ id }: { id: string }) {
   const live: Invoice = {
     ...invoice,
     ...form,
+    broughtForward,
     totals,
     amountPaid: paid,
     balance,
@@ -288,259 +369,341 @@ export default function InvoiceEditor({ id }: { id: string }) {
   };
 
   return (
-    <main>
-      {/* Top bar */}
-      <header className="no-print sticky top-0 z-30 flex items-center gap-2 border-b border-[var(--rule)] bg-[var(--paper)]/95 px-3 py-2.5 backdrop-blur">
-        <Link
-          href="/invoices"
-          aria-label="Back to invoices"
-          className="rounded-lg p-1.5 text-[var(--ink-2)] hover:bg-[var(--sunken)]"
-        >
-          <ChevronLeft size={22} />
-        </Link>
-        <div className="min-w-0 flex-1">
-          <div className="figure text-sm font-semibold leading-tight">
-            {invoiceNumberLabel(invoice.number)}
-          </div>
-          <div className="text-xs leading-tight text-[var(--ink-3)]">
-            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Up to date"}
-          </div>
-        </div>
-        <StatusPill payStatus={payStatus} status={invoice.status} />
-        <button
-          className="btn btn-ink px-3"
-          onClick={openShare}
-          aria-label="Share invoice"
-        >
-          <Share2 size={17} />
-        </button>
-      </header>
-
-      {cancelled && (
-        <div className="no-print border-b border-[var(--rule)] bg-[var(--sunken)] px-4 py-2.5 text-sm text-[var(--ink-2)]">
-          This invoice is cancelled. It stays on file but counts towards nothing.{" "}
-          <button className="font-semibold text-[var(--ink)] underline" onClick={() => setStatus("open")}>
-            Restore it
-          </button>
-        </div>
-      )}
-
-      {/* School */}
-      <section className="no-print border-b border-[var(--rule)] px-4 py-4">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="eyebrow">Billed to</span>
-          <button
-            className="text-xs font-semibold text-[var(--gold)] underline underline-offset-2"
-            onClick={() => setPickCustomer(true)}
-          >
-            {form.customerId ? "Change school" : "Choose school"}
-          </button>
-        </div>
-        <input
-          className="field font-medium"
-          placeholder="School or customer name"
-          value={form.customerName}
-          onChange={(e) => update({ customerName: e.target.value, customerId: null })}
-          aria-label="Customer name"
-        />
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <input
-            className="field"
-            type="tel"
-            inputMode="tel"
-            placeholder="Phone"
-            value={form.customerPhone}
-            onChange={(e) => update({ customerPhone: e.target.value })}
-            aria-label="Customer phone"
-          />
-          <input
-            className="field"
-            type="date"
-            value={form.date}
-            onChange={(e) => update({ date: e.target.value || today() })}
-            aria-label="Invoice date"
-          />
-        </div>
-        <input
-          className="field mt-2"
-          placeholder="Address"
-          value={form.customerAddress}
-          onChange={(e) => update({ customerAddress: e.target.value })}
-          aria-label="Customer address"
-        />
-        {form.customerId && (
-          <Link
-            href={`/customers/${form.customerId}`}
-            className="mt-2 inline-block text-xs text-[var(--gold)] underline underline-offset-2"
-          >
-            Open this school&rsquo;s record
-          </Link>
-        )}
-      </section>
-
-      {/* Books */}
-      <section className="no-print border-b border-[var(--rule)] px-4 py-4">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="eyebrow">Books</span>
-          <span className="text-xs text-[var(--ink-3)]">
-            {totals.qty} {totals.qty === 1 ? "copy" : "copies"}
-          </span>
-        </div>
-
-        {form.lines.length === 0 && (
-          <p className="py-3 text-sm text-[var(--ink-3)]">
-            Nothing on this invoice yet. Type a book name below to add it.
-          </p>
-        )}
-
-        <ul className="space-y-2">
-          {form.lines.map((l) => (
-            <LineRow
-              key={l.id}
-              line={l}
-              onPatch={(p) => patchLine(l.id, p)}
-              onRemove={() => removeLine(l.id)}
-              onSyncToShelf={() => syncLineToShelf(l.id)}
-            />
-          ))}
-        </ul>
-
-        <BookAutocomplete onAdd={addBook} />
-      </section>
-
-      {/* Money */}
-      <section className="no-print border-b border-[var(--rule)] px-4 py-4">
-        <span className="eyebrow">Totals</span>
-        <div className="ruled mt-2">
-          <TotalRow label="Subtotal" value={<Money value={totals.subtotal} />} />
-          <div className="flex items-center justify-between gap-3 py-2">
-            <label className="flex items-center gap-2 text-sm text-[var(--ink-2)]" htmlFor="discount">
-              Discount
-              <input
-                id="discount"
-                className="field figure w-16 px-2 py-1 text-right"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                max={100}
-                value={form.discountPercent || ""}
-                placeholder="0"
-                onChange={(e) =>
-                  update({ discountPercent: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })
-                }
-              />
-              <span className="text-sm">%</span>
-            </label>
-            {/* Sign outside the figure, so it reads "−₦37,560" not "₦-37,560". */}
-            <span
-              className="figure text-sm"
-              style={{ color: totals.discount > 0 ? "var(--debit)" : "var(--ink-3)" }}
+    <main className={showPreview ? "editor-wide" : undefined}>
+      <div className="editor-grid">
+        <div className="min-w-0">
+          {/* Top bar */}
+          <header className="no-print sticky top-0 z-30 flex items-center gap-2 border-b border-[var(--rule)] bg-[var(--paper)]/95 px-3 py-2.5 backdrop-blur">
+            <Link
+              href="/invoices"
+              aria-label="Back to invoices"
+              className="rounded-lg p-1.5 text-[var(--ink-2)] hover:bg-[var(--sunken)]"
             >
-              {totals.discount > 0 ? "−" : ""}
-              {formatMoney(totals.discount)}
-            </span>
-          </div>
-          <div className="flex items-baseline justify-between py-2.5">
-            <span className="font-semibold">Grand total</span>
-            <span className="figure text-[1.4rem] leading-none">{formatMoney(totals.total)}</span>
-          </div>
-        </div>
-      </section>
-
-      {/* Payments */}
-      <section className="no-print border-b border-[var(--rule)] px-4 py-4">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="eyebrow">Payments</span>
-          <span className="text-xs text-[var(--ink-3)]">
-            {form.payments.length} recorded
-          </span>
-        </div>
-
-        {form.payments.length > 0 && (
-          <ul className="ruled">
-            {form.payments.map((p) => (
-              <li key={p.id} className="flex items-center gap-3 py-2">
-                <span className="min-w-0 flex-1">
-                  <span className="figure block text-sm">{formatDate(p.date)}</span>
-                  <span className="block text-xs text-[var(--ink-3)]">
-                    {p.method}
-                    {p.note ? ` · ${p.note}` : ""}
-                  </span>
-                </span>
-                <Money value={p.amount} tone="credit" className="text-sm" />
-                <button
-                  aria-label="Remove payment"
-                  className="rounded-lg p-1 text-[var(--ink-3)] hover:bg-[var(--sunken)] hover:text-[var(--debit)]"
-                  onClick={() => update({ payments: form.payments.filter((x) => x.id !== p.id) })}
-                >
-                  <X size={16} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {addingPayment ? (
-          <PaymentForm
-            suggested={Math.max(0, balance)}
-            onCancel={() => setAddingPayment(false)}
-            onAdd={(p) => {
-              update({ payments: [...form.payments, p] });
-              setAddingPayment(false);
-            }}
-          />
-        ) : (
-          <button className="btn btn-quiet mt-3 w-full" onClick={() => setAddingPayment(true)}>
-            <Plus size={17} /> Record a payment
-          </button>
-        )}
-
-        <div className="mt-4 flex items-baseline justify-between border-t-2 border-[var(--ink)] pt-3">
-          <span className="font-semibold">
-            {balance > 0.01 ? "Balance owing" : balance < -0.01 ? "Overpaid by" : "Settled"}
-          </span>
-          <span
-            className="figure text-[1.4rem] leading-none"
-            style={{ color: balance > 0.01 ? "var(--debit)" : "var(--credit)" }}
-          >
-            {formatMoney(Math.abs(balance))}
-          </span>
-        </div>
-        <p className="mt-1 text-xs text-[var(--ink-3)]">
-          Paid {formatMoney(paid)} of {formatMoney(totals.total)}
-        </p>
-      </section>
-
-      {/* Notes */}
-      <section className="no-print border-b border-[var(--rule)] px-4 py-4">
-        <Labelled label="Notes" hint="Prints on the invoice.">
-          <textarea
-            className="field mt-1"
-            rows={2}
-            placeholder="Delivery on Friday. Balance due end of term."
-            value={form.notes}
-            onChange={(e) => update({ notes: e.target.value })}
-          />
-        </Labelled>
-      </section>
-
-      {/* Danger */}
-      <section className="no-print px-4 py-5">
-        <div className="flex gap-2">
-          {!cancelled && (
-            <button className="btn btn-quiet flex-1" onClick={() => setStatus("cancelled")}>
-              <Ban size={16} /> Cancel invoice
+              <ChevronLeft size={22} />
+            </Link>
+            <div className="min-w-0 flex-1">
+              <div className="figure text-sm font-semibold leading-tight">
+                {invoiceNumberLabel(invoice.number)}
+              </div>
+              <div
+                className="text-xs leading-tight"
+                style={{
+                  color: autosave.status === "retrying" ? "var(--debit)" : "var(--ink-3)",
+                }}
+                role="status"
+              >
+                {saveLabel(autosave.status)}
+              </div>
+            </div>
+            <StatusPill payStatus={payStatus} status={invoice.status} />
+            {/* Desktop only: the preview lives beside the form, so it can be
+                put away when the form needs the width. */}
+            <button
+              className="btn btn-quiet hidden px-2.5 editor-preview-toggle"
+              onClick={togglePreview}
+              aria-pressed={showPreview}
+              aria-label={showPreview ? "Hide the preview" : "Show the preview"}
+              title={showPreview ? "Hide the preview" : "Show the preview"}
+            >
+              {showPreview ? <EyeOff size={17} /> : <Eye size={17} />}
             </button>
+            <button className="btn btn-ink px-3" onClick={openShare} aria-label="Share invoice">
+              <Share2 size={17} />
+            </button>
+          </header>
+
+          {autosave.status === "retrying" && (
+            <div className="no-print border-b border-[var(--rule)] bg-[var(--debit-soft)] px-4 py-2.5 text-sm text-[var(--debit)]">
+              <span className="font-semibold">Not saved yet.</span> {autosave.error} Your typing is
+              safe on this device and will go up by itself.{" "}
+              <button className="font-semibold underline" onClick={autosave.retry}>
+                <RefreshCw size={12} className="inline" /> Try now
+              </button>
+            </div>
           )}
-          <button className="btn btn-danger flex-1" onClick={() => setConfirmDelete(true)}>
-            <Trash2 size={16} /> Delete
-          </button>
+
+          {cancelled && (
+            <div className="no-print border-b border-[var(--rule)] bg-[var(--sunken)] px-4 py-2.5 text-sm text-[var(--ink-2)]">
+              This invoice is cancelled. It stays on file but counts towards nothing.{" "}
+              <button
+                className="font-semibold text-[var(--ink)] underline"
+                onClick={() => setStatus("open")}
+              >
+                Restore it
+              </button>
+            </div>
+          )}
+
+          {/* School */}
+          <section className="no-print border-b border-[var(--rule)] px-4 py-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="eyebrow">Billed to</span>
+              <button
+                className="text-xs font-semibold text-[var(--gold)] underline underline-offset-2"
+                onClick={() => setPickCustomer(true)}
+              >
+                {form.customerId ? "Change school" : "Choose school"}
+              </button>
+            </div>
+            <input
+              className="field font-medium"
+              placeholder="School or customer name"
+              value={form.customerName}
+              onChange={(e) => update({ customerName: e.target.value, customerId: null })}
+              aria-label="Customer name"
+            />
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <input
+                className="field"
+                type="tel"
+                inputMode="tel"
+                placeholder="Phone"
+                value={form.customerPhone}
+                onChange={(e) => update({ customerPhone: e.target.value })}
+                aria-label="Customer phone"
+              />
+              <input
+                className="field"
+                type="date"
+                value={form.date}
+                onChange={(e) => update({ date: e.target.value || today() })}
+                aria-label="Invoice date"
+              />
+            </div>
+            <input
+              className="field mt-2"
+              placeholder="Address"
+              value={form.customerAddress}
+              onChange={(e) => update({ customerAddress: e.target.value })}
+              aria-label="Customer address"
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              {form.customerId && (
+                <Link
+                  href={`/customers/${form.customerId}`}
+                  className="text-xs text-[var(--gold)] underline underline-offset-2"
+                >
+                  Open this school&rsquo;s record
+                </Link>
+              )}
+              {schoolPrices.size > 0 && (
+                <span className="text-xs text-[var(--ink-3)]">
+                  {schoolPrices.size} book{schoolPrices.size === 1 ? " has" : "s have"} a price
+                  agreed with this school
+                </span>
+              )}
+            </div>
+          </section>
+
+          {/* Books */}
+          <section className="no-print border-b border-[var(--rule)] px-4 py-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="eyebrow">Books</span>
+              <span className="text-xs text-[var(--ink-3)]">
+                {totals.qty} {totals.qty === 1 ? "copy" : "copies"}
+              </span>
+            </div>
+
+            {form.lines.length === 0 && (
+              <p className="py-3 text-sm text-[var(--ink-3)]">
+                Nothing on this invoice yet. Type a book name below to add it.
+              </p>
+            )}
+
+            <ul className="space-y-2">
+              {form.lines.map((l) => (
+                <LineRow
+                  key={l.id}
+                  line={l}
+                  schoolName={form.customerName}
+                  canSaveSchoolPrice={!!form.customerId}
+                  schoolPrice={l.bookId ? schoolPrices.get(l.bookId) ?? null : null}
+                  generalPrice={l.bookId ? shelf.get(l.bookId)?.sellingPrice ?? null : null}
+                  onPatch={(p) => patchLine(l.id, p)}
+                  onRemove={() => removeLine(l.id)}
+                  onSyncToShelf={() => syncLineToShelf(l.id)}
+                  onSaveSchoolPrice={(price) => saveAsSchoolPrice(l.bookId!, price)}
+                  onSaveGeneralPrice={(price) => saveAsGeneralPrice(l.bookId!, price)}
+                />
+              ))}
+            </ul>
+
+            <BookAutocomplete onAdd={addBook} />
+          </section>
+
+          {/* Money */}
+          <section className="no-print border-b border-[var(--rule)] px-4 py-4">
+            <span className="eyebrow">Totals</span>
+            <div className="ruled mt-2">
+              <TotalRow label="Subtotal" value={<Money value={totals.subtotal} />} />
+              <div className="flex items-center justify-between gap-3 py-2">
+                <label
+                  className="flex items-center gap-2 text-sm text-[var(--ink-2)]"
+                  htmlFor="discount"
+                >
+                  Discount
+                  <input
+                    id="discount"
+                    className="field figure w-16 px-2 py-1 text-right"
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    max={100}
+                    value={form.discountPercent || ""}
+                    placeholder="0"
+                    onChange={(e) =>
+                      update({
+                        discountPercent: Math.min(100, Math.max(0, Number(e.target.value) || 0)),
+                      })
+                    }
+                  />
+                  <span className="text-sm">%</span>
+                </label>
+                {/* Sign outside the figure, so it reads "−₦37,560" not "₦-37,560". */}
+                <span
+                  className="figure text-sm"
+                  style={{ color: totals.discount > 0 ? "var(--debit)" : "var(--ink-3)" }}
+                >
+                  {totals.discount > 0 ? "−" : ""}
+                  {formatMoney(totals.discount)}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between py-2.5">
+                <span className="font-semibold">Grand total</span>
+                <span className="figure text-[1.4rem] leading-none">
+                  {formatMoney(totals.total)}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          {/* Payments */}
+          <section className="no-print border-b border-[var(--rule)] px-4 py-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="eyebrow">Payments</span>
+              <span className="text-xs text-[var(--ink-3)]">
+                {form.payments.length} recorded
+              </span>
+            </div>
+
+            {form.payments.length > 0 && (
+              <ul className="ruled">
+                {form.payments.map((p) => (
+                  <li key={p.id} className="flex items-center gap-3 py-2">
+                    <span className="min-w-0 flex-1">
+                      <span className="figure block text-sm">{formatDate(p.date)}</span>
+                      <span className="block text-xs text-[var(--ink-3)]">
+                        {p.method}
+                        {p.note ? ` · ${p.note}` : ""}
+                      </span>
+                    </span>
+                    <Money value={p.amount} tone="credit" className="text-sm" />
+                    <button
+                      aria-label="Remove payment"
+                      className="rounded-lg p-1 text-[var(--ink-3)] hover:bg-[var(--sunken)] hover:text-[var(--debit)]"
+                      onClick={() =>
+                        update({ payments: form.payments.filter((x) => x.id !== p.id) })
+                      }
+                    >
+                      <X size={16} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {addingPayment ? (
+              <PaymentForm
+                suggested={Math.max(0, due)}
+                onCancel={() => setAddingPayment(false)}
+                onAdd={(p) => {
+                  update({ payments: [...form.payments, p] });
+                  setAddingPayment(false);
+                }}
+              />
+            ) : (
+              <button className="btn btn-quiet mt-3 w-full" onClick={() => setAddingPayment(true)}>
+                <Plus size={17} /> Record a payment
+              </button>
+            )}
+
+            <div className="mt-4 flex items-baseline justify-between border-t-2 border-[var(--ink)] pt-3">
+              <span className="font-semibold">
+                {balance > 0.01 ? "Balance owing" : balance < -0.01 ? "Overpaid by" : "Settled"}
+              </span>
+              <span
+                className="figure text-[1.4rem] leading-none"
+                style={{ color: balance > 0.01 ? "var(--debit)" : "var(--credit)" }}
+              >
+                {formatMoney(Math.abs(balance))}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-[var(--ink-3)]">
+              Paid {formatMoney(paid)} of {formatMoney(totals.total)}
+            </p>
+
+            <CarryForward
+              on={form.carryForward}
+              arrears={arrears}
+              saved={invoice.broughtForward}
+              balance={balance}
+              due={due}
+              customerId={form.customerId}
+              onToggle={(carryForward) => update({ carryForward })}
+            />
+          </section>
+
+          {/* Notes */}
+          <section className="no-print border-b border-[var(--rule)] px-4 py-4">
+            <Labelled label="Notes" hint="Prints on the invoice.">
+              <textarea
+                className="field mt-1"
+                rows={2}
+                placeholder="Delivery on Friday. Balance due end of term."
+                value={form.notes}
+                onChange={(e) => update({ notes: e.target.value })}
+              />
+            </Labelled>
+          </section>
+
+          {/* Danger */}
+          <section className="no-print px-4 py-5">
+            <div className="flex gap-2">
+              {!cancelled && (
+                <button className="btn btn-quiet flex-1" onClick={() => setStatus("cancelled")}>
+                  <Ban size={16} /> Cancel invoice
+                </button>
+              )}
+              <button className="btn btn-danger flex-1" onClick={() => setConfirmDelete(true)}>
+                <Trash2 size={16} /> Delete
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-[var(--ink-3)]">
+              Cancelling keeps the record but removes it from every total. Deleting moves it to the
+              bin, where you can still get it back.
+            </p>
+          </section>
         </div>
-        <p className="mt-2 text-xs text-[var(--ink-3)]">
-          Cancelling keeps the record but removes it from every total. Deleting moves it to the bin,
-          where you can still get it back.
-        </p>
-      </section>
+
+        {/* The live copy, beside the form on a desktop screen. It is the same
+            component that prints and that the share sheet exports, so what he
+            sees while typing is literally what leaves the building. */}
+        {showPreview && (
+          <aside className="editor-preview no-print" aria-label="Invoice preview">
+            <div className="editor-preview-inner">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="eyebrow">Preview</span>
+                <span className="text-xs text-[var(--ink-3)]">Updates as you type</span>
+              </div>
+              <div className="card overflow-hidden">
+                <ScaledPreview width={680}>
+                  <InvoiceDocument invoice={live} business={business} toggles={toggles} />
+                </ScaledPreview>
+              </div>
+            </div>
+          </aside>
+        )}
+      </div>
 
       {/* Printing prints the document, never the editor. */}
       <div className="print-only">
@@ -564,7 +727,11 @@ export default function InvoiceEditor({ id }: { id: string }) {
 
       {confirmDelete && (
         <div className="no-print fixed inset-0 z-50 flex items-center justify-center p-6">
-          <button className="fade-in absolute inset-0 bg-[rgba(22,34,58,0.4)]" onClick={() => setConfirmDelete(false)} aria-label="Cancel" />
+          <button
+            className="fade-in absolute inset-0 bg-[rgba(22,34,58,0.4)]"
+            onClick={() => setConfirmDelete(false)}
+            aria-label="Cancel"
+          />
           <div className="sheet-in card relative w-full max-w-sm p-5" role="dialog" aria-modal="true">
             <p className="display text-lg">Delete {invoiceNumberLabel(invoice.number)}?</p>
             <p className="mt-1 text-sm text-[var(--ink-2)]">
@@ -585,20 +752,107 @@ export default function InvoiceEditor({ id }: { id: string }) {
   );
 }
 
+/* -- Bringing an old balance forward -------------------------------------- */
+
+function CarryForward({
+  on,
+  arrears,
+  saved,
+  balance,
+  due,
+  customerId,
+  onToggle,
+}: {
+  on: boolean;
+  arrears: Arrears | null;
+  saved: number;
+  balance: number;
+  due: number;
+  customerId: string | null;
+  onToggle: (on: boolean) => void;
+}) {
+  const owed = arrears?.amount ?? (on ? saved : 0);
+  const count = arrears?.invoiceCount ?? 0;
+
+  // Nothing to carry and nothing being carried — don't clutter the screen with
+  // an offer that would only ever add zero.
+  if (!customerId || (owed <= 0.01 && !on)) return null;
+
+  return (
+    <div className="mt-4 rounded-xl border border-[var(--rule)] bg-[var(--sunken)] px-3.5 py-3">
+      <label className="flex cursor-pointer items-start gap-2.5">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={on}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+        <span className="min-w-0 flex-1 text-sm">
+          <span className="font-semibold">Bring their old balance forward</span>
+          <span className="mt-0.5 block text-xs text-[var(--ink-2)]">
+            {owed > 0.01 ? (
+              <>
+                They still owe {formatMoney(owed)} on {count} earlier{" "}
+                {count === 1 ? "invoice" : "invoices"}. Showing it here doesn&rsquo;t move the debt —
+                those invoices keep it, so no figure is counted twice.
+              </>
+            ) : (
+              <>Nothing outstanding on their other invoices right now.</>
+            )}
+          </span>
+        </span>
+      </label>
+
+      {on && (
+        <div className="ruled mt-3 border-t border-[var(--rule)] pt-1">
+          <div className="flex items-baseline justify-between py-1.5 text-sm">
+            <span className="text-[var(--ink-2)]">Balance on this invoice</span>
+            <span className="figure">{formatMoney(Math.max(0, balance))}</span>
+          </div>
+          <div className="flex items-baseline justify-between py-1.5 text-sm">
+            <span className="text-[var(--ink-2)]">Brought forward</span>
+            <span className="figure">{formatMoney(owed)}</span>
+          </div>
+          <div className="flex items-baseline justify-between py-2">
+            <span className="font-semibold">Total due</span>
+            <span className="figure text-lg" style={{ color: "var(--debit)" }}>
+              {formatMoney(Math.max(0, due))}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* -- One book on the invoice --------------------------------------------- */
 
 function LineRow({
   line,
+  schoolName,
+  canSaveSchoolPrice,
+  schoolPrice,
+  generalPrice,
   onPatch,
   onRemove,
   onSyncToShelf,
+  onSaveSchoolPrice,
+  onSaveGeneralPrice,
 }: {
   line: Line;
+  schoolName: string;
+  canSaveSchoolPrice: boolean;
+  schoolPrice: number | null;
+  generalPrice: number | null;
   onPatch: (p: Partial<Line>) => void;
   onRemove: () => void;
   onSyncToShelf: () => Promise<void>;
+  onSaveSchoolPrice: (price: number) => Promise<void>;
+  onSaveGeneralPrice: (price: number) => Promise<void>;
 }) {
   const [shelfState, setShelfState] = useState<"idle" | "busy" | "done">("idle");
+  const [priceAsk, setPriceAsk] = useState(false);
+  const [priceSaved, setPriceSaved] = useState("");
   const linked = !!line.bookId;
 
   async function syncToShelf() {
@@ -625,6 +879,39 @@ function LineRow({
       ? "Update shelf"
       : "Save to shelf";
 
+  // The price this line *would* have carried if nobody had touched it.
+  const standing = schoolPrice ?? generalPrice;
+  const differs = standing !== null && Math.abs(line.unitPrice - standing) > 0.005;
+
+  /**
+   * An edited price stays on this invoice and nowhere else unless he says so.
+   * The offer is only raised when the price actually departs from the standing
+   * one, and only once he has finished typing it.
+   */
+  function checkPrice() {
+    if (!linked || !differs) {
+      setPriceAsk(false);
+      return;
+    }
+    setPriceSaved("");
+    setPriceAsk(true);
+  }
+
+  async function keepFor(where: "school" | "general") {
+    try {
+      if (where === "school") {
+        await onSaveSchoolPrice(line.unitPrice);
+        setPriceSaved(`Saved as ${schoolName.trim() || "this school"}'s price`);
+      } else {
+        await onSaveGeneralPrice(line.unitPrice);
+        setPriceSaved("General price updated");
+      }
+      setPriceAsk(false);
+    } catch {
+      setPriceSaved("Couldn't save that price");
+    }
+  }
+
   return (
     <li className="card flex gap-2.5 p-2.5">
       <Spine color={spineColor(line.publisher)} title={line.publisher} />
@@ -645,17 +932,24 @@ function LineRow({
           </button>
         </div>
 
-        {line.name.trim() && (
-          <button
-            type="button"
-            className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-[var(--gold)] disabled:opacity-60"
-            onClick={syncToShelf}
-            disabled={shelfState !== "idle"}
-          >
-            <BookPlus size={13} />
-            {shelfLabel}
-          </button>
-        )}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {line.name.trim() && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--gold)] disabled:opacity-60"
+              onClick={syncToShelf}
+              disabled={shelfState !== "idle"}
+            >
+              <BookPlus size={13} />
+              {shelfLabel}
+            </button>
+          )}
+          {schoolPrice !== null && !differs && (
+            <span className="text-xs text-[var(--credit)]">
+              At this school&rsquo;s agreed price
+            </span>
+          )}
+        </div>
 
         <div className="mt-2 flex items-center gap-2">
           <label className="flex items-center gap-1.5">
@@ -680,12 +974,46 @@ function LineRow({
               min={0}
               value={line.unitPrice}
               onChange={(e) => onPatch({ unitPrice: Math.max(0, Number(e.target.value) || 0) })}
+              onBlur={checkPrice}
             />
           </label>
           <span className="figure w-24 shrink-0 text-right text-sm font-semibold">
             {formatMoney(lineTotal(line))}
           </span>
         </div>
+
+        {priceSaved && !priceAsk && (
+          <p className="mt-1.5 text-xs text-[var(--credit)]">{priceSaved}</p>
+        )}
+
+        {priceAsk && standing !== null && (
+          <div className="mt-2 rounded-lg bg-[var(--sunken)] px-2.5 py-2 text-xs">
+            <p className="text-[var(--ink-2)]">
+              {formatMoney(line.unitPrice)} instead of {formatMoney(standing)}
+              {schoolPrice !== null ? " agreed with this school" : " on the shelf"}. Keep it for
+              this invoice only, or remember it?
+            </p>
+            <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+              {canSaveSchoolPrice && (
+                <button
+                  className="font-semibold text-[var(--gold)]"
+                  onClick={() => void keepFor("school")}
+                >
+                  Always this price for {schoolName.trim() || "this school"}
+                </button>
+              )}
+              <button
+                className="font-semibold text-[var(--ink-2)]"
+                onClick={() => void keepFor("general")}
+              >
+                Change the general price
+              </button>
+              <button className="text-[var(--ink-3)]" onClick={() => setPriceAsk(false)}>
+                Just this invoice
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </li>
   );

@@ -10,6 +10,7 @@ import {
   str,
   escapeRegex,
 } from "@/lib/serialize";
+import { arrearsFor } from "@/lib/arrears";
 import { isYmd, today } from "@/lib/datetime";
 import type { InvoiceDoc, PayStatus } from "@/lib/types";
 
@@ -85,9 +86,16 @@ export async function POST(req: Request) {
 
   const now = new Date();
   const customerName = str(body.customerName, 200);
+  const customerId =
+    typeof body.customerId === "string" && body.customerId ? body.customerId : null;
+  // Carrying a school's old balance forward is always his choice, never
+  // automatic — an invoice only shows arrears when it is asked to.
+  const carryForward = body.carryForward === true;
+  const broughtForward = carryForward ? (await arrearsFor(customerId)).amount : 0;
+
   const doc: InvoiceDoc = {
     number: await nextInvoiceNumber(),
-    customerId: typeof body.customerId === "string" && body.customerId ? body.customerId : null,
+    customerId,
     customerName,
     customerPhone: str(body.customerPhone, 80),
     customerAddress: str(body.customerAddress, 300),
@@ -99,6 +107,8 @@ export async function POST(req: Request) {
     // An order that arrives complete (from the AI import, or from a customer's
     // "new invoice" button) is already a real sale — don't strand it as a draft.
     status: promoteStatus("draft", customerName, lines),
+    carryForward,
+    broughtForward,
     ...derived(lines, discountPercent, payments),
     deleted: false,
     deletedAt: null,

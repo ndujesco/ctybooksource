@@ -9,6 +9,7 @@ import {
   promoteStatus,
   str,
 } from "@/lib/serialize";
+import { arrearsFor } from "@/lib/arrears";
 import { isYmd } from "@/lib/datetime";
 import { clampPercent, type InvoiceDoc } from "@/lib/types";
 
@@ -87,6 +88,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
     set.deleted = body.deleted;
     set.deletedAt = body.deleted ? new Date() : null;
   }
+
+  // The balance brought forward is never taken from the client and never left
+  // as a stale snapshot: while the invoice is carrying arrears, every save
+  // re-asks what this school still owes on their *other* open invoices. Pay one
+  // of those off and this figure drops by itself.
+  const carryForward =
+    typeof body.carryForward === "boolean" ? body.carryForward : !!current.carryForward;
+  const customerId = (set.customerId ?? current.customerId ?? null) as string | null;
+  set.carryForward = carryForward;
+  set.broughtForward = carryForward ? (await arrearsFor(customerId, _id)).amount : 0;
 
   set.status = promoteStatus(
     (set.status ?? current.status) as InvoiceDoc["status"],

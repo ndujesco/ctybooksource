@@ -22,6 +22,13 @@ export function listBooks(q = "", archived = false): Promise<Book[]> {
   return fetch(`/api/books?${p}`, NO_STORE).then(json<Book[]>);
 }
 
+/** The named books, as they stand on the shelf right now. */
+export function getBooks(ids: string[]): Promise<Book[]> {
+  const wanted = [...new Set(ids.filter(Boolean))];
+  if (!wanted.length) return Promise.resolve([]);
+  return fetch(`/api/books?ids=${wanted.join(",")}`, NO_STORE).then(json<Book[]>);
+}
+
 export function createBook(data: Partial<Book>): Promise<Book> {
   return fetch("/api/books", {
     method: "POST",
@@ -44,6 +51,46 @@ export function archiveBook(id: string): Promise<unknown> {
 
 export function deleteBook(id: string): Promise<unknown> {
   return fetch(`/api/books/${id}?permanent=1`, { method: "DELETE" }).then(json);
+}
+
+/* ---- Joining duplicate books ------------------------------------------- */
+
+export type DuplicateBook = Book & {
+  qty: number;
+  revenue: number;
+  lineCount: number;
+  lastSold: string | null;
+};
+
+export type DuplicateGroup = {
+  key: string;
+  title: string;
+  suggestedKeepId: string;
+  books: DuplicateBook[];
+  qty: number;
+};
+
+export function listDuplicates(): Promise<DuplicateGroup[]> {
+  return fetch("/api/books/duplicates", NO_STORE).then(json<DuplicateGroup[]>);
+}
+
+export type MergeResult = {
+  kept: Book;
+  removed: number;
+  invoicesTouched: number;
+  linesRepointed: number;
+  qtyMoved: number;
+  pricesMoved: number;
+  filledIn: string[];
+};
+
+/** Join duplicates into one record. Sales move across before anything is removed. */
+export function mergeBooks(keepId: string, mergeIds: string[]): Promise<MergeResult> {
+  return fetch("/api/books/merge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keepId, mergeIds }),
+  }).then(json<MergeResult>);
 }
 
 /* ---- Customers --------------------------------------------------------- */
@@ -100,6 +147,49 @@ export function getCustomerProfile(id: string): Promise<CustomerProfile> {
   return fetch(`/api/customers/${id}/profile`, NO_STORE).then(json<CustomerProfile>);
 }
 
+/* ---- What a particular school pays -------------------------------------
+   A book has one general price and, for any school that has negotiated one, a
+   price of its own. Setting a school price never touches the general one.
+   ---------------------------------------------------------------------- */
+
+export type SchoolPrice = {
+  bookId: string;
+  sellingPrice: number;
+  updatedAt: string;
+  book: Book | null;
+};
+
+export function listSchoolPrices(customerId: string): Promise<SchoolPrice[]> {
+  return fetch(`/api/customers/${customerId}/prices`, NO_STORE).then(json<SchoolPrice[]>);
+}
+
+export function setSchoolPrice(
+  customerId: string,
+  bookId: string,
+  sellingPrice: number
+): Promise<{ bookId: string; sellingPrice: number }> {
+  return fetch(`/api/customers/${customerId}/prices`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ bookId, sellingPrice }),
+  }).then(json<{ bookId: string; sellingPrice: number }>);
+}
+
+export function clearSchoolPrice(customerId: string, bookId: string): Promise<unknown> {
+  return fetch(`/api/customers/${customerId}/prices?bookId=${encodeURIComponent(bookId)}`, {
+    method: "DELETE",
+  }).then(json);
+}
+
+/** What a school still owes on their other open invoices. */
+export type Arrears = { amount: number; invoiceCount: number; oldest: string | null };
+
+export function getArrears(customerId: string, excludeInvoiceId?: string): Promise<Arrears> {
+  const p = new URLSearchParams();
+  if (excludeInvoiceId) p.set("exclude", excludeInvoiceId);
+  return fetch(`/api/customers/${customerId}/arrears?${p}`, NO_STORE).then(json<Arrears>);
+}
+
 /* ---- Invoices ---------------------------------------------------------- */
 
 export type InvoiceQuery = {
@@ -145,22 +235,27 @@ export type InvoicePatch = {
   discountPercent?: number;
   payments?: Payment[];
   notes?: string;
+  carryForward?: boolean;
   status?: "draft" | "open" | "cancelled";
   deleted?: boolean;
 };
 
+/**
+ * Throws when the save doesn't land. That matters: autosave retries on the
+ * throw, and a save that failed silently is how a typed invoice goes missing.
+ */
 export async function saveInvoice(
   id: string,
   patch: InvoicePatch,
   opts: { keepalive?: boolean } = {}
-): Promise<Invoice | null> {
+): Promise<Invoice> {
   const res = await fetch(`/api/invoices/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
     keepalive: opts.keepalive,
   });
-  return res.ok ? ((await res.json()) as Invoice) : null;
+  return json<Invoice>(res);
 }
 
 /**
@@ -188,7 +283,7 @@ export function listTrash(): Promise<Invoice[]> {
   return fetch("/api/invoices/trash", NO_STORE).then(json<Invoice[]>);
 }
 
-export function restoreInvoice(id: string): Promise<Invoice | null> {
+export function restoreInvoice(id: string): Promise<Invoice> {
   return saveInvoice(id, { deleted: false });
 }
 
@@ -209,6 +304,9 @@ export type ExtractedBook = {
   category: string;
   costPrice: number;
   sellingPrice: number;
+  // What the school on this order pays for it, when they have a price of their
+  // own. null means they pay the general price.
+  schoolPrice?: number | null;
 };
 
 export type ExtractedItem = {
@@ -286,6 +384,34 @@ export function getOverview<T>(): Promise<T> {
 
 export function getAnalytics<T>(params: Record<string, string>): Promise<T> {
   return fetch(`/api/analytics?${new URLSearchParams(params)}`, NO_STORE).then(json<T>);
+}
+
+export type GrandSchool = { customerId: string | null; name: string; qty: number; revenue: number };
+
+export type GrandRow = {
+  bookId: string | null;
+  name: string;
+  publisher: string;
+  qty: number;
+  revenue: number;
+  cost: number;
+  profit: number;
+  schoolCount: number;
+  schools: GrandSchool[];
+};
+
+export type Grand = {
+  range: { from: string; to: string };
+  rows: GrandRow[];
+  schools: (GrandSchool & { titles: number; orders: number })[];
+  totals: {
+    titles: number; qty: number; revenue: number; cost: number; profit: number; schools: number;
+  };
+};
+
+/** Every book sold in a period, with the schools that bought it. */
+export function getGrand(params: Record<string, string>): Promise<Grand> {
+  return fetch(`/api/analytics/grand?${new URLSearchParams(params)}`, NO_STORE).then(json<Grand>);
 }
 
 /* ---- Local mirror of the invoice being edited --------------------------

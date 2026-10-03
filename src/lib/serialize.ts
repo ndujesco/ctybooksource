@@ -1,6 +1,8 @@
 import type {
   Book,
   BookDoc,
+  BookPrice,
+  BookPriceDoc,
   Customer,
   CustomerDoc,
   Invoice,
@@ -30,6 +32,17 @@ export function toBook(d: BookDoc): Book {
     costPrice: num(d.costPrice),
     sellingPrice: num(d.sellingPrice),
     archived: !!d.archived,
+    createdAt: iso(d.createdAt),
+    updatedAt: iso(d.updatedAt),
+  };
+}
+
+export function toBookPrice(d: BookPriceDoc): BookPrice {
+  return {
+    id: String(d._id),
+    customerId: d.customerId || "",
+    bookId: d.bookId || "",
+    sellingPrice: num(d.sellingPrice),
     createdAt: iso(d.createdAt),
     updatedAt: iso(d.updatedAt),
   };
@@ -68,6 +81,8 @@ export function toInvoice(d: InvoiceDoc): Invoice {
     payments,
     notes: d.notes || "",
     status: d.status === "cancelled" || d.status === "open" ? d.status : "draft",
+    carryForward: !!d.carryForward,
+    broughtForward: num(d.broughtForward),
     totals,
     amountPaid,
     balance: Math.round((totals.total - amountPaid) * 100) / 100,

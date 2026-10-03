@@ -5,6 +5,7 @@ import {
   lineName,
   lineTotal,
   PAY_STATUS_LABEL,
+  totalDue,
   type Invoice,
 } from "@/lib/types";
 import { formatDate } from "@/lib/datetime";
@@ -35,6 +36,7 @@ const InvoiceDocument = forwardRef<HTMLDivElement, Props>(function InvoiceDocume
 ) {
   const { totals } = invoice;
   const hasDiscount = totals.discount > 0;
+  const carried = invoice.carryForward ? invoice.broughtForward || 0 : 0;
 
   const contact: string[] = [];
   if (toggles.phone && business.phone) contact.push(business.phone);
@@ -223,12 +225,36 @@ const InvoiceDocument = forwardRef<HTMLDivElement, Props>(function InvoiceDocume
           <div style={{ marginTop: 8 }}>
             <Row label="Amount paid" value={formatMoney(invoice.amountPaid)} color={CREDIT} bold />
             <Row
-              label="Balance"
+              label={carried > 0 ? "Balance on this invoice" : "Balance"}
               value={formatMoney(Math.max(0, invoice.balance))}
               color={invoice.balance > 0.01 ? DEBIT : CREDIT}
               bold
             />
           </div>
+
+          {/* Arrears from the school's earlier invoices. Shown beneath this
+              invoice's own figures, never folded into them — the debt belongs
+              to the invoices that raised it. */}
+          {carried > 0 && (
+            <div style={{ marginTop: 8, borderTop: `1px solid ${RULE}`, paddingTop: 6 }}>
+              <Row label="Balance brought forward" value={formatMoney(carried)} bold />
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  borderTop: `2px solid ${INK}`,
+                  paddingTop: 7,
+                  marginTop: 5,
+                }}
+              >
+                <span style={{ fontWeight: 600, fontSize: 13 }}>Total due</span>
+                <span style={{ ...figure, fontWeight: 600, fontSize: 19, color: DEBIT }}>
+                  {formatMoney(Math.max(0, totalDue(invoice)))}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

@@ -586,3 +586,162 @@ export async function monthlyProfit(year: string): Promise<SeriesPoint[]> {
 export function currentYear(): string {
   return today().slice(0, 4);
 }
+
+/* ---------------------------------------------------------------------------
+   The grand invoice
+
+   Every copy of every book sold in a period, as one sheet — "Bond Maths 5-6:
+   312 copies" — with the schools that bought them underneath. The ranked
+   products report answers "what sells"; this answers "what went out of the
+   door, and to whom", which is the sheet you take to a publisher to reorder.
+   ------------------------------------------------------------------------ */
+
+export type GrandSchool = {
+  customerId: string | null;
+  name: string;
+  qty: number;
+  revenue: number;
+};
+
+export type GrandRow = {
+  bookId: string | null;
+  name: string;
+  publisher: string;
+  qty: number;
+  revenue: number;
+  cost: number;
+  profit: number;
+  schoolCount: number;
+  schools: GrandSchool[]; // biggest buyer first
+};
+
+export type Grand = {
+  rows: GrandRow[];
+  schools: (GrandSchool & { titles: number; orders: number })[];
+  totals: { titles: number; qty: number; revenue: number; cost: number; profit: number; schools: number };
+};
+
+/**
+ * @param customerId  limit the whole sheet to one school
+ * @param publisher   limit it to one publisher
+ */
+export async function grandSales(
+  range: Range,
+  opts: { customerId?: string; publisher?: string } = {}
+): Promise<Grand> {
+  const col = await invoices();
+
+  const match: Document = { ...inRange(range) };
+  if (opts.customerId) match.customerId = opts.customerId;
+
+  const lineMatch: Document = { "lines.qty": { $gt: 0 } };
+  if (opts.publisher) lineMatch["lines.publisher"] = opts.publisher;
+
+  const rows = await col
+    .aggregate<Document>([
+      { $match: match },
+      { $unwind: "$lines" },
+      { $match: lineMatch },
+      {
+        // One bucket per book *per school* — the breakdown and the totals both
+        // fall out of the same pass.
+        $group: {
+          _id: {
+            book: { $ifNull: ["$lines.bookId", { $concat: ["~", "$lines.name"] }] },
+            customer: { $ifNull: ["$customerId", { $concat: ["~", "$customerName"] }] },
+          },
+          name: { $last: "$lines.name" },
+          publisher: { $last: "$lines.publisher" },
+          customerName: { $last: "$customerName" },
+          customerId: { $last: "$customerId" },
+          qty: { $sum: "$lines.qty" },
+          revenue: { $sum: LINE_REVENUE },
+          cost: { $sum: LINE_COST },
+          invoiceIds: { $addToSet: "$_id" },
+        },
+      },
+      { $sort: { qty: -1 } },
+      { $limit: 20_000 },
+    ])
+    .toArray();
+
+  const byBook = new Map<string, GrandRow>();
+  const bySchool = new Map<string, GrandSchool & { titles: number; orders: number; _inv: Set<string> }>();
+
+  for (const r of rows) {
+    const bookKey = String(r._id?.book ?? "");
+    const schoolKey = String(r._id?.customer ?? "");
+    const qty = r.qty || 0;
+    const revenue = round2(r.revenue || 0);
+    const cost = round2(r.cost || 0);
+    const schoolName = r.customerName || "No school named";
+
+    let book = byBook.get(bookKey);
+    if (!book) {
+      book = {
+        bookId: bookKey.startsWith("~") || !bookKey ? null : bookKey,
+        name: r.name || "Unnamed book",
+        publisher: r.publisher || "",
+        qty: 0,
+        revenue: 0,
+        cost: 0,
+        profit: 0,
+        schoolCount: 0,
+        schools: [],
+      };
+      byBook.set(bookKey, book);
+    }
+    book.qty += qty;
+    book.revenue = round2(book.revenue + revenue);
+    book.cost = round2(book.cost + cost);
+    book.schools.push({
+      customerId: typeof r.customerId === "string" ? r.customerId : null,
+      name: schoolName,
+      qty,
+      revenue,
+    });
+
+    let school = bySchool.get(schoolKey);
+    if (!school) {
+      school = {
+        customerId: typeof r.customerId === "string" ? r.customerId : null,
+        name: schoolName,
+        qty: 0,
+        revenue: 0,
+        titles: 0,
+        orders: 0,
+        _inv: new Set<string>(),
+      };
+      bySchool.set(schoolKey, school);
+    }
+    school.qty += qty;
+    school.revenue = round2(school.revenue + revenue);
+    school.titles++;
+    for (const id of (r.invoiceIds as unknown[]) || []) school._inv.add(String(id));
+  }
+
+  const out = [...byBook.values()];
+  for (const row of out) {
+    row.profit = round2(row.revenue - row.cost);
+    row.schoolCount = row.schools.length;
+    row.schools.sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name));
+  }
+  out.sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name));
+
+  const schools = [...bySchool.values()]
+    .map(({ _inv, ...s }) => ({ ...s, orders: _inv.size }))
+    .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name));
+
+  return {
+    rows: out,
+    schools,
+    totals: {
+      titles: out.length,
+      qty: out.reduce((s, r) => s + r.qty, 0),
+      revenue: round2(out.reduce((s, r) => s + r.revenue, 0)),
+      cost: round2(out.reduce((s, r) => s + r.cost, 0)),
+      profit: round2(out.reduce((s, r) => s + r.profit, 0)),
+      schools: schools.length,
+    },
+  };
+}

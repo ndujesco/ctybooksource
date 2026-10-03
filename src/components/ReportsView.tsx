@@ -195,6 +195,19 @@ function BooksTab({ data, rank, setRank }: { data: Analytics; rank: Rank; setRan
 
   return (
     <>
+      <Section title="Grand invoice">
+        <Link href="/reports/grand" className="card flex items-center gap-3 px-3.5 py-3">
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium">Every book sold, on one sheet</span>
+            <span className="block text-xs text-[var(--ink-2)]">
+              Total copies per title across all schools, openable to see who took them — and
+              filterable to one school.
+            </span>
+          </span>
+          <span className="shrink-0 text-[var(--gold)]">&rarr;</span>
+        </Link>
+      </Section>
+
       <Section title="Best sellers" action={<Segmented label="Rank by" value={rank} options={RANKS} onChange={setRank} />}>
         <div className="card px-3.5 py-3.5">
           <RankBars

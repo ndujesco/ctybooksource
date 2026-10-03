@@ -4,6 +4,7 @@ import {
   lineName,
   lineTotal,
   PAY_STATUS_LABEL,
+  totalDue,
   type Invoice,
 } from "@/lib/types";
 import { formatDate } from "@/lib/datetime";
@@ -42,7 +43,13 @@ export function buildShareText(
   }
   out.push(`*TOTAL: ${formatMoney(invoice.totals.total)}*`);
   out.push(`Paid: ${formatMoney(invoice.amountPaid)}`);
-  if (invoice.balance > 0.01) {
+
+  const carried = invoice.carryForward ? invoice.broughtForward || 0 : 0;
+  if (carried > 0) {
+    out.push(`Balance on this invoice: ${formatMoney(Math.max(0, invoice.balance))}`);
+    out.push(`Brought forward: ${formatMoney(carried)}`);
+    out.push(`*TOTAL DUE: ${formatMoney(Math.max(0, totalDue(invoice)))}*`);
+  } else if (invoice.balance > 0.01) {
     out.push(`*Balance: ${formatMoney(invoice.balance)}*`);
   } else {
     out.push(`Status: ${PAY_STATUS_LABEL[invoice.payStatus]}`);

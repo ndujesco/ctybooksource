@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   BookPlus,
@@ -12,15 +12,16 @@ import {
 } from "lucide-react";
 import Sheet from "@/components/Sheet";
 import BookPicker from "@/components/BookPicker";
+import CustomerPicker from "@/components/CustomerPicker";
 import { ErrorNote, Spine } from "@/components/ui";
 import {
   createBook,
   createCustomer,
   createInvoice,
   extractOrder,
+  listSchoolPrices,
   type ExtractedBook,
   type ExtractedItem,
-  type Extraction,
 } from "@/lib/client";
 import { formatMoney, lineTotal, type Line } from "@/lib/types";
 import { today } from "@/lib/datetime";
@@ -36,6 +37,11 @@ type Draft = {
   suggestion: ExtractedBook | null; // a shelf match on offer, until accepted or dismissed
   qty: number;
   unitPrice: number;
+  // Whether the price was written on the order itself. A price the school wrote
+  // down is their instruction and is never overwritten by a stored one; a price
+  // we filled in ourselves is only a default, and the school's agreed price
+  // takes it over the moment we know which school this is.
+  fromSource: boolean;
 };
 
 function toDrafts(items: ExtractedItem[]): Draft[] {
@@ -46,7 +52,15 @@ function toDrafts(items: ExtractedItem[]): Draft[] {
     suggestion: it.suggestion,
     qty: it.quantity,
     unitPrice: it.price,
+    fromSource: it.price > 0,
   }));
+}
+
+/** What this school pays for a book, when they have a price of their own. */
+function schoolPriceFor(d: Draft, prices: Map<string, number>): number | null {
+  const book = d.book ?? d.suggestion;
+  if (!book) return null;
+  return prices.get(book.id) ?? book.schoolPrice ?? null;
 }
 
 export default function ImportSheet({ onClose }: { onClose: () => void }) {
@@ -57,25 +71,38 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
   const [reading, setReading] = useState(false);
   const [error, setError] = useState("");
 
-  const [result, setResult] = useState<Extraction | null>(null);
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
   const [customer, setCustomer] = useState({ name: "", phone: "", address: "" });
+  const [customerId, setCustomerId] = useState<string | null>(null);
   const [saveCustomer, setSaveCustomer] = useState(true);
   const [pickingFor, setPickingFor] = useState<string | null>(null);
+  const [pickingSchool, setPickingSchool] = useState(false);
   const [creating, setCreating] = useState(false);
+  // This school's agreed prices, keyed by book id.
+  const [schoolPrices, setSchoolPrices] = useState<Map<string, number>>(new Map());
 
   async function read() {
     setReading(true);
     setError("");
     try {
       const extraction = await extractOrder({ text, files });
-      setResult(extraction);
       setDrafts(toDrafts(extraction.items));
       setCustomer({
         name: extraction.customer.match?.name ?? extraction.customer.name,
         phone: extraction.customer.match?.phone || extraction.customer.phone,
         address: extraction.customer.match?.address || extraction.customer.address,
       });
+      setCustomerId(extraction.customer.match?.id ?? null);
+      // The server already priced the suggestions at this school's rates where
+      // it recognised them; keep the map so a later change of school re-prices.
+      setSchoolPrices(
+        new Map(
+          extraction.items
+            .map((it) => it.suggestion)
+            .filter((b): b is ExtractedBook => !!b && typeof b.schoolPrice === "number")
+            .map((b) => [b.id, b.schoolPrice as number])
+        )
+      );
       // An already-known school needs no second record.
       setSaveCustomer(!extraction.customer.match);
     } catch (e) {
@@ -89,6 +116,33 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
     setDrafts((prev) => prev?.map((d) => (d.key === key ? { ...d, ...next } : d)) ?? null);
   }
 
+  /**
+   * Attach the order to a school we already know, and re-price it at whatever
+   * was agreed with them. A price written on the order itself is left alone.
+   */
+  const attachSchool = useCallback(
+    async (c: { id: string; name: string; phone: string; address: string }) => {
+      setCustomerId(c.id);
+      setCustomer({ name: c.name, phone: c.phone, address: c.address });
+      setSaveCustomer(false);
+      try {
+        const rows = await listSchoolPrices(c.id);
+        const prices = new Map(rows.map((r) => [r.bookId, r.sellingPrice]));
+        setSchoolPrices(prices);
+        setDrafts((prev) =>
+          prev?.map((d) => {
+            if (d.fromSource) return d;
+            const agreed = schoolPriceFor(d, prices);
+            return agreed === null ? d : { ...d, unitPrice: agreed };
+          }) ?? null
+        );
+      } catch {
+        // No price list is not an error — the general prices still apply.
+      }
+    },
+    []
+  );
+
   // Link a line to a shelf book — whether from the AI's suggestion or a manual
   // pick. Adopt the shelf's clean name, and fill the price from it only when
   // the source didn't already show one.
@@ -101,7 +155,10 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
               book,
               suggestion: null,
               written: book.name,
-              unitPrice: d.unitPrice > 0 ? d.unitPrice : book.sellingPrice,
+              // What this school pays wins over the general price.
+              unitPrice: d.fromSource
+                ? d.unitPrice
+                : schoolPrices.get(book.id) ?? book.schoolPrice ?? book.sellingPrice,
             }
           : d
       ) ?? null
@@ -117,9 +174,9 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
     setCreating(true);
     setError("");
     try {
-      let customerId = result?.customer.match?.id ?? null;
-      if (!customerId && saveCustomer && customer.name.trim()) {
-        customerId = (await createCustomer(customer)).id;
+      let attachTo = customerId;
+      if (!attachTo && saveCustomer && customer.name.trim()) {
+        attachTo = (await createCustomer(customer)).id;
       }
 
       // A line the user linked to the shelf carries that book's id. A line
@@ -155,7 +212,7 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
 
       const invoice = await createInvoice({
         date: today(),
-        customerId,
+        customerId: attachTo,
         customerName: customer.name.trim(),
         customerPhone: customer.phone.trim(),
         customerAddress: customer.address.trim(),
@@ -202,11 +259,17 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
 
           {/* School */}
           <div className="mb-4">
-            <div className="mb-1.5 flex items-center justify-between">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
               <span className="eyebrow">Billed to</span>
-              {result?.customer.match && (
-                <span className="pill pill-paid">Already on file</span>
-              )}
+              <div className="flex items-center gap-2">
+                {customerId && <span className="pill pill-paid">Already on file</span>}
+                <button
+                  className="text-xs font-semibold text-[var(--gold)] underline underline-offset-2"
+                  onClick={() => setPickingSchool(true)}
+                >
+                  {customerId ? "Change school" : "Choose school"}
+                </button>
+              </div>
             </div>
             <input
               className="field font-medium"
@@ -232,7 +295,13 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
                 aria-label="Customer address"
               />
             </div>
-            {!result?.customer.match && customer.name.trim() && (
+            {customerId && schoolPrices.size > 0 && (
+              <p className="mt-2 text-xs text-[var(--credit)]">
+                Priced at the {schoolPrices.size} rate{schoolPrices.size === 1 ? "" : "s"} agreed
+                with this school, not the general ones.
+              </p>
+            )}
+            {!customerId && customer.name.trim() && (
               <label className="mt-2 flex items-center gap-2 text-xs text-[var(--ink-2)]">
                 <input
                   type="checkbox"
@@ -289,7 +358,13 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
                       <span className="font-medium">{d.suggestion.name}</span>
                       <span className="text-[var(--ink-3)]">
                         {d.suggestion.publisher ? ` · ${d.suggestion.publisher}` : ""}
-                        {d.suggestion.sellingPrice > 0 ? ` · ${formatMoney(d.suggestion.sellingPrice)}` : ""}
+                        {(() => {
+                          const agreed = schoolPriceFor(d, schoolPrices);
+                          if (agreed !== null) return ` · ${formatMoney(agreed)} for this school`;
+                          return d.suggestion!.sellingPrice > 0
+                            ? ` · ${formatMoney(d.suggestion!.sellingPrice)}`
+                            : "";
+                        })()}
                       </span>
                       <span className="text-[var(--ink-2)]">?</span>
                       <div className="mt-1.5 flex gap-2">
@@ -373,6 +448,16 @@ export default function ImportSheet({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </Sheet>
+
+        {pickingSchool && (
+          <CustomerPicker
+            onClose={() => setPickingSchool(false)}
+            onPick={(c) => {
+              void attachSchool(c);
+              setPickingSchool(false);
+            }}
+          />
+        )}
 
         {pickingFor && (
           <BookPicker

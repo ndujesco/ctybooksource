@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { books as booksCollection, customers as customersCollection } from "@/lib/mongodb";
+import {
+  bookPrices as bookPricesCollection,
+  books as booksCollection,
+  customers as customersCollection,
+} from "@/lib/mongodb";
 import { toBook, toCustomer } from "@/lib/serialize";
 import { matchBook } from "@/lib/match";
 import { escapeRegex } from "@/lib/serialize";
@@ -215,10 +219,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "AI couldn't find any books in that." }, { status: 422 });
   }
 
+  // The school comes first, because the prices depend on it. If this school is
+  // already on file, use their record rather than creating a near-duplicate —
+  // that's what keeps their history, and their prices, in one place.
+  const customerName = typeof raw.customerName === "string" ? raw.customerName.trim() : "";
+  const customer = {
+    name: customerName,
+    phone: typeof raw.customerPhone === "string" ? raw.customerPhone.trim() : "",
+    address: typeof raw.customerAddress === "string" ? raw.customerAddress.trim() : "",
+    match: customerName ? await findCustomer(customerName) : null,
+  };
+
   // Match each written title against the shelf, so the line carries the book's
   // id, publisher and cost price into the invoice.
   const catalogue = (await (await booksCollection()).find({ archived: { $ne: true } }).limit(2000).toArray())
     .map(toBook);
+
+  // What this particular school pays. An order read for a school we know is
+  // priced at that school's rates, not at the general ones — the prices agreed
+  // with them last term are the prices on this term's invoice.
+  const schoolPrices = await pricesFor(customer.match?.id);
 
   const items = parsed.map((it) => {
     const match = matchBook(it.name, catalogue);
@@ -237,22 +257,24 @@ export async function POST(req: Request) {
             category: book.category,
             costPrice: book.costPrice,
             sellingPrice: book.sellingPrice,
+            // null when this school has no price of its own for it.
+            schoolPrice: schoolPrices.get(book.id) ?? null,
           }
         : null,
     };
   });
 
-  const customerName = typeof raw.customerName === "string" ? raw.customerName.trim() : "";
-  const customer = {
-    name: customerName,
-    phone: typeof raw.customerPhone === "string" ? raw.customerPhone.trim() : "",
-    address: typeof raw.customerAddress === "string" ? raw.customerAddress.trim() : "",
-    // If this school is already on file, use their record rather than creating
-    // a near-duplicate — that's what keeps their history in one place.
-    match: customerName ? await findCustomer(customerName) : null,
-  };
-
   return NextResponse.json({ customer, items });
+}
+
+/** This school's own prices, keyed by book id. Empty for a school we don't know. */
+async function pricesFor(customerId: string | undefined): Promise<Map<string, number>> {
+  if (!customerId) return new Map();
+  const rows = await (await bookPricesCollection())
+    .find({ customerId })
+    .limit(5000)
+    .toArray();
+  return new Map(rows.map((r) => [r.bookId, Number(r.sellingPrice) || 0]));
 }
 
 /** Look for an existing customer whose name contains (or is contained by) the written one. */
